@@ -22,5 +22,8 @@ prost-types = "0.14"
 # Operating system specific directories (e.g. /ProgramData, etc.)
 directories = "6.0.0"
 
+# Compile-time string formatting.
+const_format = "0.2.35"
+
 [build-dependencies]
 prost-build = "0.14"

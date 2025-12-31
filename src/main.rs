@@ -4,6 +4,7 @@
 pub mod tui_log;
 pub mod wow;
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -18,9 +19,20 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListItem, Paragraph, Widget};
 use ratatui::{DefaultTerminal, Frame};
 
+use crate::wow::WowCharacter;
+
 // Colours..
 const DARK_SLATE: Color = Color::Rgb(22, 31, 31);
 const SELECTED_GREEN: Color = Color::Rgb(30, 143, 32);
+
+const SPECIAL_WHITE: Color = Color::Rgb(205, 232, 250);
+
+/// Convert an (r, g, b) tuple into a `Color::Rgb`
+#[inline]
+#[must_use]
+const fn into_colour((r, g, b): (u8, u8, u8)) -> Color {
+    Color::Rgb(r, g, b)
+}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -38,10 +50,12 @@ fn main() -> Result<()> {
 }
 
 #[derive(Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
 struct ChronoBindAppConfig {
     pub show_realm: bool,
     pub show_output: bool,
     pub group_by_realm: bool,
+    pub show_friendly_names: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -54,6 +68,8 @@ enum InputMode {
 #[derive(Debug, Default)]
 struct ChronoBindApp {
     should_exit: bool,
+    #[allow(dead_code)]
+    wow_installations: Vec<wow::WowInstall>,
     characters: Vec<Character>,
     selected_index: usize,
     selected_file_index: usize,
@@ -65,114 +81,65 @@ struct ChronoBindApp {
 
 #[derive(Debug, Clone)]
 struct Character {
-    name: String,
-    realm: String,
-    files: Vec<String>,
+    pub character: WowCharacter,
     selected_files: Vec<bool>,
 }
 
 impl Character {
-    pub fn new(name: String, realm: String, files: Vec<String>) -> Self {
-        let file_count = files.len();
+    pub fn new(character: &WowCharacter) -> Self {
+        let file_count = character.files.len();
         Self {
-            name,
-            realm,
-            files,
+            character: character.clone(),
             selected_files: vec![false; file_count],
         }
     }
 
+    /// Get the display name of the character, optionally including the realm.
+    #[must_use]
     pub fn display_name(&self, show_realm: bool) -> String {
         if show_realm {
             format!("{} - {}", self.name(), self.realm())
         } else {
-            self.name.clone()
+            self.name().to_string()
         }
     }
 
+    /// Get the realm of the character.
+    #[inline]
+    #[must_use]
     pub fn realm(&self) -> &str {
-        &self.realm
+        &self.character.realm
     }
 
+    /// Get the name of the character.
+    #[inline]
+    #[must_use]
     pub fn name(&self) -> &str {
-        &self.name
+        &self.character.name
     }
-}
 
-fn TEMP_get_sample_characters() -> Vec<Character> {
-    vec![
-        Character::new(
-            "Cache".to_string(),
-            "Ravencrest".to_string(),
-            vec![
-                "SavedVariables.lua".to_string(),
-                "combat_logs.txt".to_string(),
-                "keybindings.wtf".to_string(),
-                "addons.txt".to_string(),
-            ],
-        ),
-        Character::new(
-            "Figgled".to_string(),
-            "Ravencrest".to_string(),
-            vec![
-                "SavedVariables.lua".to_string(),
-                "macros.txt".to_string(),
-                "keybindings.wtf".to_string(),
-            ],
-        ),
-        Character::new(
-            "Bananas".to_string(),
-            "Ravencrest".to_string(),
-            vec![
-                "SavedVariables.lua".to_string(),
-                "combat_logs.txt".to_string(),
-                "settings.wtf".to_string(),
-                "achievements.lua".to_string(),
-                "professions.txt".to_string(),
-            ],
-        ),
-        Character::new(
-            "Ahamkara".to_string(),
-            "Ravencrest".to_string(),
-            vec![
-                "SavedVariables.lua".to_string(),
-                "keybindings.wtf".to_string(),
-                "transmog.lua".to_string(),
-            ],
-        ),
-        Character::new(
-            "Ooöözey".to_string(),
-            "Ravencrest".to_string(),
-            vec![
-                "SavedVariables.lua".to_string(),
-                "combat_logs.txt".to_string(),
-                "addons.txt".to_string(),
-                "keybindings.wtf".to_string(),
-                "raid_frames.lua".to_string(),
-            ],
-        ),
-        Character::new(
-            "Bambii".to_string(),
-            "Der-rat-von-dalaran".to_string(),
-            vec![
-                "SavedVariables.lua".to_string(),
-                "combat_logs.txt".to_string(),
-                "addons.txt".to_string(),
-                "keybindings.wtf".to_string(),
-                "raid_frames.lua".to_string(),
-            ],
-        ),
-    ]
+    #[inline]
+    #[must_use]
+    pub fn files(&self) -> &[wow::WowCharacterFile] {
+        &self.character.files
+    }
 }
 
 impl ChronoBindApp {
     pub fn new() -> Self {
         // Sample WoW characters with their associated files
-        let characters = TEMP_get_sample_characters();
+        let wow_installs = match wow::locate_wow_installs() {
+            Ok(installs) => installs,
+            Err(e) => {
+                log::error!("Failed to locate WoW installations: {e}");
+                Vec::new()
+            }
+        };
 
-        Self {
+        let mut app = Self {
             should_exit: false,
-            characters,
+            wow_installations: wow_installs,
+            characters: Vec::new(),
             selected_index: 0,
             selected_file_index: 0,
             debug_scroll_offset: 0,
@@ -181,12 +148,64 @@ impl ChronoBindApp {
             config: ChronoBindAppConfig {
                 show_realm: false,
                 show_output: false,
-                group_by_realm: false,
+                group_by_realm: true,
+                show_friendly_names: true,
             },
-        }
+        };
+
+        app.refresh_characters();
+
+        app
+    }
+
+    pub fn refresh_characters(&mut self) {
+        // Retail for now..
+        let chars = self
+            .wow_installations
+            .iter()
+            .find(|install| install.is_retail())
+            .and_then(wow::WowInstall::find_all_characters_and_files)
+            .map(|chars| chars.iter().map(Character::new).collect())
+            .unwrap_or_default();
+
+        self.characters = chars;
+        self.selected_index = 0;
+        self.selected_file_index = 0;
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        match wow::locate_wow_installs() {
+            Ok(installs) => {
+                log::info!("Located {} WoW installations:", installs.len());
+                for install in installs {
+                    log::info!(
+                        "{} at {}",
+                        install.display_branch_name(),
+                        install.install_path
+                    );
+                    let Some(characters) = install.find_all_characters() else {
+                        log::warn!(
+                            "Failed to find accounts in installation at {}",
+                            install.install_path
+                        );
+                        continue;
+                    };
+
+                    for character in characters {
+                        log::info!(
+                            " - Character: {} - {} / {}",
+                            character.name,
+                            character.realm,
+                            character.account
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to locate WoW installations: {e}");
+            }
+        }
+
         while !self.should_exit {
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
@@ -206,6 +225,11 @@ impl ChronoBindApp {
 
     fn on_key_down(&mut self, key: &KeyEvent) {
         match key.code {
+            KeyCode::Char('r') => {
+                log::debug!("Refreshing character list..");
+                self.refresh_characters();
+                log::debug!("Character list refreshed.");
+            }
             KeyCode::F(1) => {
                 self.config.show_output = !self.config.show_output;
             }
@@ -213,6 +237,9 @@ impl ChronoBindApp {
                 self.config.group_by_realm = !self.config.group_by_realm;
                 self.selected_index = 0;
                 self.selected_file_index = 0;
+            }
+            KeyCode::F(3) => {
+                self.config.show_friendly_names = !self.config.show_friendly_names;
             }
             KeyCode::Char('q') => {
                 log::debug!("Quit requested");
@@ -269,7 +296,10 @@ impl ChronoBindApp {
             let mut realms: std::collections::BTreeMap<String, Vec<usize>> =
                 std::collections::BTreeMap::new();
             for (i, character) in self.characters.iter().enumerate() {
-                realms.entry(character.realm.clone()).or_default().push(i);
+                realms
+                    .entry(character.realm().to_string())
+                    .or_default()
+                    .push(i);
             }
 
             let mut abs_positions = Vec::new();
@@ -373,7 +403,7 @@ impl ChronoBindApp {
             }
             KeyCode::Down | KeyCode::Char('s') => {
                 if let Some(character) = character
-                    && self.selected_file_index < character.files.len().saturating_sub(1)
+                    && self.selected_file_index < character.files().len().saturating_sub(1)
                 {
                     self.selected_file_index += 1;
                 }
@@ -384,7 +414,7 @@ impl ChronoBindApp {
                 {
                     character.selected_files[self.selected_file_index] =
                         !character.selected_files[self.selected_file_index];
-                    let file_name = character.files[self.selected_file_index].clone();
+                    let file_name = character.files()[self.selected_file_index].get_full_filename();
                     let selected = character.selected_files[self.selected_file_index];
                     log::info!("File '{file_name}' toggled: {selected}");
                 }
@@ -420,7 +450,10 @@ impl ChronoBindApp {
             let mut realms: std::collections::BTreeMap<String, Vec<usize>> =
                 std::collections::BTreeMap::new();
             for (i, character) in self.characters.iter().enumerate() {
-                realms.entry(character.realm.clone()).or_default().push(i);
+                realms
+                    .entry(character.realm().to_string())
+                    .or_default()
+                    .push(i);
             }
 
             let mut current_pos = 0;
@@ -484,11 +517,98 @@ impl ChronoBindApp {
         self.file_list(chunks[1], buf);
     }
 
-    fn character_list(&self, area: Rect, buf: &mut Buffer) {
-        const INDENT_DEPTH: usize = 3;
+    fn flat_character_items(&self) -> Vec<ListItem<'_>> {
+        self.characters
+            .iter()
+            .enumerate()
+            .map(|(i, character)| {
+                let hovered = self.selected_index == i;
+                let mut style = Style::default();
+                if hovered {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
 
+                let files_selected = character.selected_files.iter().any(|s| *s);
+                let colour = into_colour(character.character.class.class_colour());
+
+                let ui_span_text = if hovered { "> " } else { "" };
+                let ui_span_source = if files_selected {
+                    Span::from(format!("{ui_span_text}• ")).style(style.fg(SELECTED_GREEN))
+                } else {
+                    Span::from(ui_span_text).style(style)
+                };
+
+                let main_span = Span::from(character.display_name(self.config.show_realm))
+                    .style(style.fg(colour));
+
+                let all_style = style.bg(if hovered { DARK_SLATE } else { Color::Reset });
+
+                ListItem::new(Line::from(vec![ui_span_source, main_span])).style(all_style)
+            })
+            .collect()
+    }
+
+    fn realm_grouped_character_items(&self) -> Vec<ListItem<'_>> {
+        const INDENT_DEPTH: usize = 3;
         let indentation = " ".repeat(INDENT_DEPTH);
 
+        let mut realms: BTreeMap<String, Vec<(usize, &Character)>> = BTreeMap::new();
+        for (i, character) in self.characters.iter().enumerate() {
+            realms
+                .entry(character.realm().to_string())
+                .or_default()
+                .push((i, character));
+        }
+
+        let mut items = Vec::new();
+
+        for (realm, chars) in &realms {
+            // Add realm header
+            let is_collapsed = self.collapsed_realms.contains(realm);
+            let hovered = self.selected_index == items.len();
+            let collapse_icon = if is_collapsed { "▶" } else { "▼" };
+            let mut header_style = Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Gray);
+            if hovered {
+                header_style = header_style.bg(DARK_SLATE);
+            }
+            let content = format!(
+                "{collapse_icon} {}[{realm}]",
+                if hovered { "> " } else { "" }
+            );
+            items.push(ListItem::new(content).style(header_style));
+
+            // Add characters in this realm (only if not collapsed)
+            if !is_collapsed {
+                for (_, character) in chars {
+                    let hovered = self.selected_index == items.len();
+                    let style = Style::default();
+
+                    let files_selected = character.selected_files.iter().any(|s| *s);
+                    let colour = into_colour(character.character.class.class_colour());
+
+                    let ui_span_text = format!("{indentation}{}", if hovered { "> " } else { "" });
+                    let ui_span_source = if files_selected {
+                        Span::from(format!("{ui_span_text}• ")).style(style.fg(SELECTED_GREEN))
+                    } else {
+                        Span::from(ui_span_text).style(style)
+                    };
+                    let main_span = Span::from(character.name()).style(style.fg(colour));
+
+                    let all_style = style.bg(if hovered { DARK_SLATE } else { Color::Reset });
+
+                    items.push(
+                        ListItem::new(Line::from(vec![ui_span_source, main_span])).style(all_style),
+                    );
+                }
+            }
+        }
+
+        items
+    }
+
+    fn character_list(&self, area: Rect, buf: &mut Buffer) {
         let title = Line::styled(
             " Characters ",
             Style::default().add_modifier(Modifier::BOLD),
@@ -496,79 +616,10 @@ impl ChronoBindApp {
 
         let block = Block::bordered().title(title).border_set(border::THICK);
 
-        let items: Vec<ListItem> = if self.config.group_by_realm {
-            // Group characters by realm
-            let mut realms: std::collections::BTreeMap<String, Vec<(usize, &Character)>> =
-                std::collections::BTreeMap::new();
-            for (i, character) in self.characters.iter().enumerate() {
-                realms
-                    .entry(character.realm.clone())
-                    .or_default()
-                    .push((i, character));
-            }
-
-            let mut items = Vec::new();
-            let mut current_index = 0;
-
-            for (realm, chars) in &realms {
-                // Add realm header
-                let is_collapsed = self.collapsed_realms.contains(realm);
-                let collapse_icon = if is_collapsed { "▶" } else { "▼" };
-                let mut header_style = Style::default().add_modifier(Modifier::BOLD);
-                if current_index == self.selected_index {
-                    header_style = header_style.bg(DARK_SLATE);
-                }
-                items.push(ListItem::new(format!("{collapse_icon} [{realm}]")).style(header_style));
-                current_index += 1;
-
-                // Add characters in this realm (only if not collapsed)
-                if !is_collapsed {
-                    for (_, character) in chars {
-                        let files_selected = character.selected_files.iter().any(|s| *s);
-                        let colour = if files_selected {
-                            SELECTED_GREEN
-                        } else {
-                            Color::White
-                        };
-
-                        let mut style = Style::default().fg(colour);
-
-                        let content = if current_index == self.selected_index {
-                            style = style.bg(DARK_SLATE);
-                            format!("{indentation}> {}", character.name())
-                        } else {
-                            format!("{indentation}{}", character.name())
-                        };
-                        items.push(ListItem::new(content).style(style));
-                        current_index += 1;
-                    }
-                }
-            }
-            items
+        let items = if self.config.group_by_realm {
+            self.realm_grouped_character_items()
         } else {
-            // Original flat list
-            self.characters
-                .iter()
-                .enumerate()
-                .map(|(i, character)| {
-                    let files_selected = character.selected_files.iter().any(|s| *s);
-                    let colour = if files_selected {
-                        SELECTED_GREEN
-                    } else {
-                        Color::White
-                    };
-
-                    let mut style = Style::default().fg(colour);
-
-                    let content = if i == self.selected_index {
-                        style = style.bg(DARK_SLATE);
-                        format!("> {}", character.display_name(self.config.show_realm))
-                    } else {
-                        character.display_name(self.config.show_realm)
-                    };
-                    ListItem::new(content).style(style)
-                })
-                .collect()
+            self.flat_character_items()
         };
 
         let list = List::new(items).block(block);
@@ -582,10 +633,11 @@ impl ChronoBindApp {
         let title = selected_character.map_or_else(
             || Line::styled(" Files ", Style::default().add_modifier(Modifier::BOLD)),
             |character| {
-                Line::styled(
-                    format!(" Files - {} ", character.name),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )
+                let style = Style::default().add_modifier(Modifier::BOLD);
+                let files_span = Span::from(" Files - ").style(style);
+                let char_span = Span::from(format!("{} ", character.name()))
+                    .style(style.fg(into_colour(character.character.class.class_colour())));
+                Line::from(vec![files_span, char_span])
             },
         );
 
@@ -594,32 +646,54 @@ impl ChronoBindApp {
         if let Some(character) = selected_character {
             // Create list items from files with selection indicators
             let items: Vec<ListItem> = character
-                .files
+                .files()
                 .iter()
                 .enumerate()
                 .map(|(i, file)| {
-                    let hovered = self.selected_file_index == i;
+                    let hovered = self.input_mode == InputMode::FileSelection
+                        && self.selected_file_index == i;
                     let selected = character.selected_files[i];
+                    let has_friendly = file.has_friendly_name();
 
-                    let mut style = Style::default().fg(if selected {
+                    let fg_colour = if selected {
                         SELECTED_GREEN
+                    } else if has_friendly && self.config.show_friendly_names {
+                        SPECIAL_WHITE
                     } else {
                         Color::White
-                    });
+                    };
 
-                    // If in file selection mode and this is the hovered file, highlight it
-                    if self.input_mode == InputMode::FileSelection && hovered {
-                        style = style.bg(DARK_SLATE).add_modifier(Modifier::BOLD);
+                    let mut style = Style::default().fg(fg_colour);
+
+                    let file_prefix_ui =
+                        Span::from(format!("[{}] 📄 ", if selected { "✓" } else { " " }))
+                            .style(style);
+
+                    if self.config.show_friendly_names && has_friendly {
+                        style = style.add_modifier(Modifier::ITALIC);
                     }
 
-                    let file_name = if self.input_mode == InputMode::FileSelection && hovered {
-                        format!("> {file}")
-                    } else {
-                        file.clone()
-                    };
-                    let content = format!("[{}] 📄 {file_name}", if selected { "✓" } else { " " });
+                    let file_name = file.display_name(self.config.show_friendly_names);
+                    let content = format!(
+                        "{}{file_name}",
+                        if self.input_mode == InputMode::FileSelection && hovered {
+                            "> "
+                        } else {
+                            ""
+                        }
+                    );
 
-                    ListItem::new(content).style(style)
+                    let mut all_style = Style::default();
+                    if hovered {
+                        all_style = all_style.add_modifier(Modifier::BOLD);
+                        all_style = all_style.bg(DARK_SLATE);
+                    }
+
+                    ListItem::new(Line::from(vec![
+                        file_prefix_ui,
+                        Span::from(content).style(style),
+                    ]))
+                    .style(all_style)
                 })
                 .collect();
 
@@ -675,28 +749,17 @@ impl ChronoBindApp {
     }
 
     fn bottom_bar(&self, area: Rect, buf: &mut Buffer) {
-        let suffix_options = [
-            "q: Quit".to_string(),
-            format!(
-                "F1: {} output",
-                if self.config.show_output {
-                    "Hide"
-                } else {
-                    "Show"
-                }
-            ),
-            "F2: Realm grouping".to_string(),
-        ];
+        let suffix_options = ["q: Quit".to_string()];
         let status_elements = if self.config.show_output {
-            vec!["↑w/↓s: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
+            vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
             match self.input_mode {
-                InputMode::Navigation => vec!["↑w/↓s: Navigate", "↵/→d/Space: Select Files"],
+                InputMode::Navigation => vec!["↑/↓: Navigate", "↵/→/Space: Select"],
                 InputMode::FileSelection => vec![
-                    "↑w/↓s: Navigate",
-                    "Space/↵/→d: Toggle",
+                    "↑/↓: Navigate",
+                    "Space/↵/→: Toggle",
                     "Ctrl+A: Select All",
-                    "←/a: Characters",
+                    "←: Characters",
                 ],
             }
         };
