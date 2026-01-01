@@ -21,7 +21,7 @@ const WOW_PRODUCT_CODE_IDENT: &str = "wow";
 /// Prefix for World of Warcraft product codes with branch identifiers.
 const WOW_PRODUCT_CODE_BRANCH_PREFIX: &str = concatcp!(WOW_PRODUCT_CODE_IDENT, "_");
 /// Identifier for the retail branch of World of Warcraft.
-const WOW_RETAIL_IDENT: &str = "retail";
+pub const WOW_RETAIL_IDENT: &str = "retail";
 
 /// Represents a World of Warcraft installation.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

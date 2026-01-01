@@ -8,12 +8,13 @@ pub mod tui_log;
 pub mod widgets;
 pub mod wow;
 
+use widgets::character_list::{CharacterListWidget, NavigationAction};
+use widgets::file_list::{FileListConfig, FileListWidget, FileSelectionAction};
 use widgets::popup::PopupState;
 
 #[allow(clippy::wildcard_imports)]
 use palette::*;
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -23,22 +24,28 @@ use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Alignment, Constraint, Direction, Flex, Layout, Rect};
-use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListDirection, ListItem, ListState, Paragraph, Widget};
+use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph, Widget};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::wow::WowCharacter;
 
+/// Entry point..
 fn main() -> Result<()> {
+    // Bootstrap better panic handling..
     color_eyre::install()?;
 
+    // Initialize logging that binds to our TUI..
     tui_log::init_tui_logger(log::LevelFilter::Debug);
 
     let mut app = ChronoBindApp::new();
     let mut terminal = ratatui::init();
+
+    if set_console_window_title("ChronoBind").is_err() {
+        log::warn!("Failed to set console window title");
+    }
 
     let result = app.run(&mut terminal);
 
@@ -47,37 +54,16 @@ fn main() -> Result<()> {
     result
 }
 
-#[derive(Debug, Default)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct ChronoBindAppConfig {
-    pub show_realm: bool,
-    pub show_output: bool,
-    pub show_friendly_names: bool,
-    pub mock_mode: bool,
-}
+/// Set the console window title.
+/// # Errors
+/// Returns an error if writing to stdout fails.
+fn set_console_window_title(title: &str) -> crate::files::AnyResult<()> {
+    use std::io::{Write, stdout};
+    let mut stdout = stdout();
+    write!(stdout, "\x1b]0;{title}\x07")?;
+    stdout.flush()?;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-enum InputMode {
-    #[default]
-    Navigation,
-    FileSelection,
-    Popup,
-}
-
-#[derive(Debug, Default)]
-pub struct ChronoBindApp {
-    should_exit: bool,
-    #[allow(dead_code)]
-    wow_installations: Vec<wow::WowInstall>,
-    characters: Vec<Character>,
-    input_mode: InputMode,
-    config: ChronoBindAppConfig,
-    debug_scroll_offset: usize,
-    collapsed_realms: BTreeSet<String>,
-    file_list_state: ListState,
-    character_list_state: ListState,
-    popup: Option<PopupState>,
-    copied_char: Option<usize>,
+    Ok(())
 }
 
 pub enum PopupKind {
@@ -89,12 +75,18 @@ pub struct PopupInfo {
     pub items: Vec<String>,
 }
 
+/// Representation of a `WoW` character along with its selected files and
+/// options inside the app UI.
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_field_names)]
 pub struct Character {
+    /// The underlying `WoW` character data.
     pub character: WowCharacter,
+    /// Which config files are selected.
     selected_config_files: Vec<bool>,
+    /// Which addon files are selected.
     selected_addon_files: Vec<bool>,
+    /// Whether the addon options section is collapsed.
     addon_options_collapsed: bool,
 }
 
@@ -135,18 +127,21 @@ impl Character {
         &self.character.name
     }
 
+    /// Get the config files of the character.
     #[inline]
     #[must_use]
     pub fn config_files(&self) -> &[wow::WowCharacterFile] {
         &self.character.config_files
     }
 
+    /// Get the addon files of the character.
     #[inline]
     #[must_use]
     pub fn addon_files(&self) -> &[wow::WowCharacterFile] {
         &self.character.addon_files
     }
 
+    /// Check if a config file at the given index is selected.
     #[inline]
     #[must_use]
     #[allow(dead_code)]
@@ -157,6 +152,7 @@ impl Character {
             .unwrap_or(false)
     }
 
+    /// Toggle the selected status of a config file at the given index.
     #[inline]
     pub fn toggle_config_file_selected(&mut self, index: usize) -> bool {
         self.selected_config_files
@@ -167,6 +163,7 @@ impl Character {
             })
     }
 
+    /// Check if an addon file at the given index is selected.
     #[inline]
     #[must_use]
     #[allow(dead_code)]
@@ -177,6 +174,7 @@ impl Character {
             .unwrap_or(false)
     }
 
+    /// Toggle the selected status of an addon file at the given index.
     #[inline]
     pub fn toggle_addon_file_selected(&mut self, index: usize) -> bool {
         self.selected_addon_files
@@ -262,37 +260,66 @@ impl Character {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum FileRowKind {
-    File(usize),
-    AddonHeader { collapsed: bool, count: usize },
-    AddonFile(usize),
+/// Application configuration options.
+#[derive(Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct ChronoBindAppConfig {
+    /// Whether to show realm names alongside character names.
+    pub show_realm: bool,
+    /// Whether to show friendly names for files instead of raw filenames.
+    pub show_friendly_names: bool,
+    /// Whether to operate in mock mode (no actual file operations).
+    pub mock_mode: bool,
+}
+
+/// Different input modes for the application.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+enum InputMode {
+    /// Navigating the character list.
+    #[default]
+    Navigation,
+    /// Selecting files for a character.
+    FileSelection,
+    /// Interacting with a popup menu.
+    Popup,
+}
+
+/// Main application state.
+#[derive(Debug, Default)]
+pub struct ChronoBindApp {
+    /// Application configuration settings.
+    config: ChronoBindAppConfig,
+
+    /// Whether the application should exit.
+    should_exit: bool,
+
+    /// Currently selected `WoW` branch identifier.
+    selected_branch: Option<String>,
+    /// Located `WoW` installations.
+    wow_installations: Vec<wow::WowInstall>,
+    /// List of characters across the selected branch.
+    characters: Vec<Character>,
+    /// Index of the character from which files were copied.
+    copied_char: Option<usize>,
+
+    /// Current input mode of the application.
+    input_mode: InputMode,
+
+    /// Whether to show the console debug output.
+    show_console: bool,
+    /// Scroll offset for the debug console.
+    debug_scroll_offset: usize,
+
+    /// Character list widget for displaying characters.
+    character_list_widget: CharacterListWidget,
+    /// File list widget for displaying character files.
+    file_list_widget: FileListWidget,
+
+    /// Current popup state, if any.
+    popup: Option<PopupState>,
 }
 
 impl ChronoBindApp {
-    #[inline]
-    fn file_rows_for_character(character: &Character) -> Vec<FileRowKind> {
-        let mut rows = Vec::new();
-
-        for idx in 0..character.config_files().len() {
-            rows.push(FileRowKind::File(idx));
-        }
-
-        let addon_count = character.addon_files().len();
-        rows.push(FileRowKind::AddonHeader {
-            collapsed: character.addon_options_collapsed,
-            count: addon_count,
-        });
-
-        if !character.addon_options_collapsed {
-            for idx in 0..addon_count {
-                rows.push(FileRowKind::AddonFile(idx));
-            }
-        }
-
-        rows
-    }
-
     #[must_use]
     pub fn new() -> Self {
         // Sample WoW characters with their associated files
@@ -305,41 +332,32 @@ impl ChronoBindApp {
         };
 
         let mut app = Self {
-            should_exit: false,
-            wow_installations: wow_installs,
-            characters: Vec::new(),
-            debug_scroll_offset: 0,
-            input_mode: InputMode::Navigation,
-            collapsed_realms: BTreeSet::new(),
-            popup: None,
-            file_list_state: ListState::default(),
-            character_list_state: ListState::default(),
             config: ChronoBindAppConfig {
                 show_realm: false,
-                show_output: false,
                 show_friendly_names: true,
                 mock_mode: true,
             },
+            should_exit: false,
+
+            selected_branch: None,
+            wow_installations: wow_installs,
+            characters: Vec::new(),
             copied_char: None,
+
+            input_mode: InputMode::Navigation,
+
+            show_console: false,
+            debug_scroll_offset: 0,
+
+            character_list_widget: CharacterListWidget::new(),
+            file_list_widget: FileListWidget::new(),
+
+            popup: None,
         };
 
-        app.refresh_characters();
+        app.load_branch_characters(wow::WOW_RETAIL_IDENT);
 
         app
-    }
-
-    pub fn refresh_characters(&mut self) {
-        // Retail for now..
-        let chars = self
-            .wow_installations
-            .iter()
-            .find(|install| install.is_retail())
-            .and_then(wow::WowInstall::find_all_characters_and_files)
-            .map(|chars| chars.iter().map(Character::new).collect())
-            .unwrap_or_default();
-
-        self.characters = chars;
-        self.character_list_state.select(Some(0));
     }
 }
 
@@ -357,25 +375,20 @@ impl ChronoBindApp {
     #[inline]
     #[must_use]
     pub fn selected_index(&self) -> usize {
-        self.character_list_state.selected().unwrap_or(0)
+        self.character_list_widget.selected_index()
     }
 
-    /// Copy the selected files for the currently selected character.
+    /// Get the actual character index from `selected_index`, accounting for grouped display
+    fn get_selected_character_index(&self) -> Option<usize> {
+        self.character_list_widget
+            .get_selected_character_index(&self.characters)
+    }
+
+    /// Get the currently selected branch's `WoW` installation.
     #[inline]
     #[must_use]
-    pub fn copy_selected(&mut self) -> bool {
-        if let Some(char_idx) = self.get_selected_character_index()
-            && let Some(character) = self.characters.get(char_idx)
-        {
-            let selected_files = character.get_all_selected_files();
-            if selected_files.is_empty() {
-                return true;
-            }
-            self.copied_char = Some(char_idx);
-            true
-        } else {
-            false
-        }
+    pub fn get_selected_branch_install(&self) -> Option<&wow::WowInstall> {
+        self.find_wow_branch(self.selected_branch.as_ref()?)
     }
 
     /// Get the character with its associated install for the character at the given index.
@@ -416,6 +429,32 @@ impl ChronoBindApp {
         };
         character.character.refresh_character_info(&install)
     }
+
+    /// Load the characters from a given `WoW` branch identifier.
+    pub fn load_branch_characters(&mut self, branch: &str) {
+        self.characters.clear();
+        self.character_list_widget.state.select(Some(0));
+        self.copied_char = None;
+
+        let Some(install) = self.find_wow_branch(branch) else {
+            log::error!("No WoW installation found for branch: {branch}");
+            return;
+        };
+
+        let Some(characters) = install
+            .find_all_characters_and_files()
+            .map(|chars| chars.iter().map(Character::new).collect::<Vec<_>>())
+        else {
+            log::error!(
+                "Failed to find characters in installation at {}",
+                install.install_path
+            );
+            return;
+        };
+
+        self.characters = characters;
+        self.selected_branch = Some(branch.to_string());
+    }
 }
 
 impl ChronoBindApp {
@@ -423,75 +462,6 @@ impl ChronoBindApp {
     pub fn open_popup(&mut self, popup: PopupState) {
         self.popup = Some(popup);
         self.input_mode = InputMode::Popup;
-    }
-
-    /// Show the backup options popup for the given character index.
-    pub fn show_backup_popup(&mut self, char_idx: usize) {
-        if self.characters.get(char_idx).is_none() {
-            log::error!("Invalid character index for backup popup: {char_idx}");
-            return;
-        }
-        let popup = PopupState::new(
-            " Backup Options ",
-            vec![
-                "Backup selected files".to_string(),
-                "Backup all files".to_string(),
-                "Restore from backup".to_string(),
-            ],
-            Box::new(handle_character_backup_popup),
-        )
-        .with_context(char_idx);
-        self.open_popup(popup);
-    }
-
-    /// Show the restore from backup popup for the given character index.
-    pub fn show_restore_popup(&mut self, char_idx: usize) {
-        self.refresh_character_backups(char_idx);
-        let Some(character) = self.characters.get(char_idx) else {
-            log::error!("Invalid character index for restore popup: {char_idx}");
-            return;
-        };
-        let items = character
-            .character
-            .backups
-            .iter()
-            .map(|backup| {
-                format!(
-                    "{} {}{}",
-                    backup.char_name,
-                    display_backup_time(&backup.timestamp),
-                    if backup.is_paste { " (Pasted)" } else { "" }
-                )
-            })
-            .collect_vec();
-        let popup = PopupState::new(
-            format!(" Restore {} ", self.characters[char_idx].display_name(true)),
-            items,
-            Box::new(handle_character_restore_popup),
-        )
-        .with_context(char_idx);
-        self.open_popup(popup);
-    }
-
-    pub fn show_paste_confirm_popup(&mut self, char_idx: usize, file_count: usize) {
-        let title = " Are you sure? ";
-        let plural = if file_count == 1 { "" } else { "s" };
-        let Some(character) = self.characters.get(char_idx) else {
-            log::error!("Invalid character index for paste confirm popup: {char_idx}");
-            return;
-        };
-        let items = vec![
-            format!(
-                "Paste {} file{} to {}",
-                file_count,
-                plural,
-                character.display_name(true)
-            ),
-            "Cancel".to_string(),
-        ];
-        let popup = PopupState::new(title, items, Box::new(handle_paste_confirm_popup))
-            .with_context(char_idx);
-        self.open_popup(popup);
     }
 
     /// Runs the main application loop.
@@ -537,14 +507,20 @@ impl ChronoBindApp {
         Ok(())
     }
 
+    /// Draw the entire application UI.
     fn draw(&mut self, frame: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Fill(1), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(1),
+            ])
             .split(frame.area());
 
-        self.main_screen(chunks[0], frame.buffer_mut());
-        self.bottom_bar(chunks[1], frame.buffer_mut());
+        self.top_bar(chunks[0], frame.buffer_mut());
+        self.main_screen(chunks[1], frame.buffer_mut());
+        self.bottom_bar(chunks[2], frame.buffer_mut());
 
         // Render popup on top if it's open
         if self.input_mode == InputMode::Popup {
@@ -553,15 +529,20 @@ impl ChronoBindApp {
         }
     }
 
+    /// Handle key down events.
     fn on_key_down(&mut self, key: &KeyEvent) {
         match key.code {
             KeyCode::Char('r') => {
                 log::debug!("Refreshing character list..");
-                self.refresh_characters();
+                if let Some(branch) = self.selected_branch.clone() {
+                    self.load_branch_characters(&branch);
+                } else {
+                    log::warn!("No branch selected to refresh characters");
+                }
                 log::debug!("Character list refreshed.");
             }
             KeyCode::F(1) => {
-                self.config.show_output = !self.config.show_output;
+                self.show_console = !self.show_console;
             }
             KeyCode::F(2) => {
                 self.config.show_friendly_names = !self.config.show_friendly_names;
@@ -573,17 +554,18 @@ impl ChronoBindApp {
             _ => {}
         }
 
-        if self.config.show_output {
+        if self.show_console {
             self.handle_console_output_keys(key);
         } else {
             match self.input_mode {
-                InputMode::Navigation => self.handle_navigation_keys(key),
-                InputMode::FileSelection => self.handle_file_selection_keys(key),
+                InputMode::Navigation => self.handle_char_navigation_commands(key),
+                InputMode::FileSelection => self.handle_file_selection_commands(key),
                 InputMode::Popup => self.handle_popup_keys(key),
             }
         }
     }
 
+    /// Handle scrolling input for the console output.
     const fn handle_console_output_keys(&mut self, key: &KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let speed_multiplier = if ctrl { 3 } else { 1 };
@@ -616,197 +598,86 @@ impl ChronoBindApp {
         }
     }
 
-    fn handle_navigation_keys(&mut self, key: &KeyEvent) {
-        // Build the grouped structure to determine navigation
-        let mut realms: std::collections::BTreeMap<String, Vec<usize>> =
-            std::collections::BTreeMap::new();
-        for (i, character) in self.characters.iter().enumerate() {
-            realms
-                .entry(character.realm().to_string())
-                .or_default()
-                .push(i);
-        }
+    /// Handle commands from the character navigation widget.
+    fn handle_char_navigation_commands(&mut self, key: &KeyEvent) {
+        let action = self
+            .character_list_widget
+            .handle_navigation_input(key, &self.characters);
 
-        let mut abs_positions = Vec::new();
-        let mut current_pos = 0;
-        for (realm, char_indices) in &realms {
-            abs_positions.push((current_pos, true, realm.clone()));
-            current_pos += 1;
-
-            // Only add characters if realm is not collapsed
-            if !self.collapsed_realms.contains(realm) {
-                for &char_idx in char_indices {
-                    abs_positions.push((current_pos, false, format!("{char_idx}")));
-                    current_pos += 1;
-                }
+        match action {
+            NavigationAction::None => {}
+            NavigationAction::EnterFileSelection => {
+                self.input_mode = InputMode::FileSelection;
+                self.file_list_widget.state.select(Some(0));
             }
-        }
-
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w') => {
-                if let Some(selected) = self.character_list_state.selected() {
-                    self.character_list_state
-                        .select(Some(selected.saturating_sub(1)));
-                }
+            NavigationAction::ShowBackup(char_idx) => {
+                self.show_backup_popup(char_idx);
             }
-            KeyCode::Down | KeyCode::Char('s') => {
-                if let Some(selected) = self.character_list_state.selected() {
-                    self.character_list_state
-                        .select(Some(selected.saturating_add(1)));
-                }
-            }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                if let Some((_, is_header, realm_or_idx)) = abs_positions.get(self.selected_index())
+            NavigationAction::Copy(char_idx) => {
+                if let Some(character) = self.characters.get(char_idx)
+                    && character.any_file_selected()
                 {
-                    if *is_header {
-                        if self.collapsed_realms.contains(realm_or_idx) {
-                            self.collapsed_realms.remove(realm_or_idx);
-                        } else {
-                            self.collapsed_realms.insert(realm_or_idx.clone());
-                        }
-                    } else {
-                        // Character selected, enter file selection
-                        self.input_mode = InputMode::FileSelection;
-                        self.file_list_state.select(Some(0));
-                        log::debug!("Entered file selection mode");
-                    }
-                }
-            }
-            KeyCode::Char('d') | KeyCode::Right => {
-                if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
-                    && !*is_header
-                {
-                    self.input_mode = InputMode::FileSelection;
-                    self.file_list_state.select(Some(0));
-                    log::debug!("Entered file selection mode");
-                }
-            }
-            KeyCode::Char('b') => {
-                if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
-                    && !*is_header
-                    && let Some(char_idx) = self.get_selected_character_index()
-                {
-                    self.show_backup_popup(char_idx);
-                }
-            }
-            KeyCode::Char('c') => {
-                if self.copy_selected() {
+                    self.copied_char = Some(char_idx);
                     log::info!("Selected files copied to clipboard");
                 } else {
-                    log::error!("Failed to copy files from character!");
+                    log::warn!("No files selected to copy");
                 }
             }
-            KeyCode::Char('v') => {
-                if let Some(char_idx) = &self.copied_char
-                    && let Some(target_char_idx) = self.get_selected_character_index()
-                {
-                    if *char_idx == target_char_idx {
+            NavigationAction::Paste(target_char_idx) => {
+                if let Some(source_char_idx) = self.copied_char {
+                    if source_char_idx == target_char_idx {
                         log::warn!(
                             "Cannot paste files onto the same character they were copied from"
                         );
                     } else {
-                        let files_to_paste =
-                            self.characters[*char_idx].get_all_selected_files().len();
+                        let files_to_paste = self.characters[source_char_idx]
+                            .get_all_selected_files()
+                            .len();
                         self.show_paste_confirm_popup(target_char_idx, files_to_paste);
                     }
+                } else {
+                    log::warn!("No files copied to paste");
                 }
             }
-            _ => {}
         }
     }
 
-    fn handle_file_selection_keys(&mut self, key: &KeyEvent) {
+    /// Handle commands from the file selection widget.
+    fn handle_file_selection_commands(&mut self, key: &KeyEvent) {
         let char_index = self.get_selected_character_index();
-        let rows_meta = char_index
-            .and_then(|idx| self.characters.get(idx))
-            .map(Self::file_rows_for_character);
         let character = char_index.and_then(|idx| self.characters.get_mut(idx));
 
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        if let Some(character) = character {
+            let action = self
+                .file_list_widget
+                .handle_file_selection_input(key, character);
 
-        match key.code {
-            KeyCode::Char('a') if !ctrl => {
-                self.input_mode = InputMode::Navigation;
-            }
-            KeyCode::Esc | KeyCode::Left => {
-                self.input_mode = InputMode::Navigation;
-            }
-            KeyCode::Up | KeyCode::Char('w') => {
-                if let Some(sel_index) = self.file_list_state.selected() {
-                    self.file_list_state
-                        .select(Some(sel_index.saturating_sub(1)));
+            match action {
+                FileSelectionAction::None => {}
+                FileSelectionAction::ExitFileSelection => {
+                    self.input_mode = InputMode::Navigation;
                 }
-            }
-            KeyCode::Down | KeyCode::Char('s') => {
-                if let Some(sel_index) = self.file_list_state.selected() {
-                    self.file_list_state.select(Some(sel_index + 1));
+                FileSelectionAction::ShowBackup => {
+                    if let Some(char_idx) = self.get_selected_character_index() {
+                        self.show_backup_popup(char_idx);
+                    }
                 }
-            }
-            KeyCode::Char(' ' | 'd') | KeyCode::Enter | KeyCode::Right => {
-                let Some(selected_index) = self.file_list_state.selected() else {
-                    return;
-                };
-                if let (Some(character), Some(rows)) = (character, rows_meta.as_ref())
-                    && selected_index < rows.len()
-                {
-                    match rows[selected_index] {
-                        FileRowKind::File(idx) => {
-                            let selected = character.toggle_config_file_selected(idx);
-                            let file_name = character.config_files()[idx].get_full_filename();
-                            log::info!("File '{file_name}' toggled: {selected}");
-                        }
-                        FileRowKind::AddonHeader { .. } => {
-                            if ctrl {
-                                let selected = character.all_addon_files_selected();
-                                character.set_all_addon_selected(!selected);
-                                log::info!(
-                                    "{} all addon files",
-                                    if selected { "Deselected" } else { "Selected" }
-                                );
-                            } else {
-                                character.addon_options_collapsed =
-                                    !character.addon_options_collapsed;
-                            }
-                        }
-                        FileRowKind::AddonFile(idx) => {
-                            let selected = character.toggle_addon_file_selected(idx);
-                            let file_name = character.addon_files()[idx].get_full_filename();
-                            log::info!("Addon file '{file_name}' toggled: {selected}");
-                        }
+                FileSelectionAction::Copy => {
+                    if let Some(char_idx) = self.get_selected_character_index()
+                        && let Some(character) = self.characters.get(char_idx)
+                        && character.any_file_selected()
+                    {
+                        self.copied_char = Some(char_idx);
+                        log::info!("Selected files copied to clipboard");
+                    } else {
+                        log::warn!("No files selected to copy");
                     }
                 }
             }
-            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(character) = character {
-                    let all_selected = character.all_config_files_selected()
-                        && character.all_addon_files_selected();
-                    character.set_all_selected(!all_selected);
-                    log::info!(
-                        "All files {}",
-                        if all_selected {
-                            "deselected"
-                        } else {
-                            "selected"
-                        }
-                    );
-                }
-            }
-            KeyCode::Char('b') => {
-                if let Some(char_idx) = self.get_selected_character_index() {
-                    self.show_backup_popup(char_idx);
-                }
-            }
-            KeyCode::Char('c') => {
-                if self.copy_selected() {
-                    log::info!("Selected files copied to clipboard");
-                } else {
-                    log::error!("Failed to copy files from character!");
-                }
-            }
-            _ => {}
         }
     }
 
+    /// Handle popup menu key events.
     fn handle_popup_keys(&mut self, key: &KeyEvent) {
         if let Some(popup) = &mut self.popup {
             match key.code {
@@ -829,6 +700,7 @@ impl ChronoBindApp {
         }
     }
 
+    /// Handle the popup selection action.
     fn handle_popup_selection(&mut self) {
         if self.popup.is_none() {
             return;
@@ -842,47 +714,15 @@ impl ChronoBindApp {
         }
     }
 
-    fn on_event(&mut self, ev: &Event) {
-        if let Event::Key(k) = ev
-            && k.kind == KeyEventKind::Press
-        {
-            self.on_key_down(k);
-        }
-    }
-
-    /// Get the actual character index from `selected_index`, accounting for grouped display
-    fn get_selected_character_index(&self) -> Option<usize> {
-        // Build the grouped structure
-        let mut realms: std::collections::BTreeMap<String, Vec<usize>> =
-            std::collections::BTreeMap::new();
-        for (i, character) in self.characters.iter().enumerate() {
-            realms
-                .entry(character.realm().to_string())
-                .or_default()
-                .push(i);
-        }
-
-        let mut current_pos = 0;
-        for (realm, char_indices) in &realms {
-            current_pos += 1;
-
-            // Only process characters if realm is not collapsed
-            if !self.collapsed_realms.contains(realm) {
-                for &char_idx in char_indices {
-                    if current_pos == self.selected_index() {
-                        return Some(char_idx);
-                    }
-                    current_pos += 1;
-                }
-            }
-        }
-        None
-    }
-
+    /// Handle input events.
     fn handle_events(&mut self) -> Result<()> {
         if event::poll(Duration::from_millis(250)).context("Event poll failed")? {
             let ev = event::read().context("Event read failed")?;
-            self.on_event(&ev);
+            if let Event::Key(k) = ev
+                && k.kind == KeyEventKind::Press
+            {
+                self.on_key_down(&k);
+            }
         }
         Ok(())
     }
@@ -890,8 +730,9 @@ impl ChronoBindApp {
 
 // Ui..
 impl ChronoBindApp {
+    /// Render the main screen UI.
     fn main_screen(&mut self, area: Rect, buf: &mut Buffer) {
-        if self.config.show_output {
+        if self.show_console {
             // Split into three sections: characters, files, and debug
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -920,257 +761,26 @@ impl ChronoBindApp {
         self.file_list(chunks[1], buf);
     }
 
+    /// Render the character list panel.
     fn character_list(&mut self, area: Rect, buf: &mut Buffer) {
-        const INDENT_DEPTH: usize = 3;
-        let indentation = " ".repeat(INDENT_DEPTH);
-
-        let title = Line::styled(
-            " Characters ",
-            Style::default().add_modifier(Modifier::BOLD),
-        );
-        let block = Block::bordered().title(title).border_set(border::THICK);
-
-        let mut realms: BTreeMap<String, Vec<(usize, &Character)>> = BTreeMap::new();
-        for (i, character) in self.characters.iter().enumerate() {
-            realms
-                .entry(character.realm().to_string())
-                .or_default()
-                .push((i, character));
-        }
-
-        let mut items = Vec::new();
-
-        for (realm, chars) in &realms {
-            // Add realm header
-            let is_collapsed = self.collapsed_realms.contains(realm);
-            let hovered = self
-                .character_list_state
-                .selected()
-                .is_some_and(|sel| sel == items.len());
-            let collapse_icon = if is_collapsed { "▶" } else { "▼" };
-            let header_style = Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(STD_FG)
-                .add_modifier(Modifier::DIM);
-            let content = format!(
-                "{collapse_icon} {}[{realm}]",
-                if hovered { "> " } else { "" }
-            );
-            items.push(ListItem::new(content).style(header_style));
-
-            // Add characters in this realm (only if not collapsed)
-            if !is_collapsed {
-                for (_, character) in chars {
-                    let hovered = self
-                        .character_list_state
-                        .selected()
-                        .is_some_and(|sel| sel == items.len());
-                    let style = Style::default();
-
-                    let files_selected = character.any_file_selected();
-                    let colour = character.character.class.class_colour();
-
-                    let ui_span_text = format!("{indentation}{}", if hovered { "> " } else { "" });
-                    let ui_span_source = if files_selected {
-                        Span::from(format!("{ui_span_text}• ")).style(style.fg(SELECTED_FG))
-                    } else {
-                        Span::from(ui_span_text).style(style)
-                    };
-
-                    let main_span = Span::from(character.name()).style(style.fg(colour));
-                    items.push(ListItem::new(Line::from(vec![ui_span_source, main_span])));
-                }
-            }
-        }
-
-        let list_view = List::new(items)
-            .block(block)
-            .style(Style::new().white())
-            .highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG))
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
-            .direction(ListDirection::TopToBottom);
-
-        StatefulWidget::render(list_view, area, buf, &mut self.character_list_state);
+        self.character_list_widget
+            .render(area, buf, &self.characters);
     }
 
-    fn file_row_file_item<'a, 'b: 'a>(
-        &'a self,
-        character: &Character,
-        file_idx: usize,
-        hovered: bool,
-    ) -> ListItem<'b> {
-        let file = &character.config_files()[file_idx];
-        let selected = character.selected_config_files[file_idx];
-        let has_friendly = file.has_friendly_name();
-
-        let fg_colour = if selected {
-            SELECTED_FG
-        } else if has_friendly && self.config.show_friendly_names {
-            SPECIAL_FG
-        } else {
-            STD_FG
-        };
-        let mut style = Style::default().fg(fg_colour);
-
-        let file_prefix_ui =
-            Span::from(format!("[{}] \u{2699}  ", if selected { "✓" } else { " " })).style(style);
-
-        if self.config.show_friendly_names && has_friendly {
-            style = style.add_modifier(Modifier::ITALIC);
-        }
-
-        let file_name = file.display_name(self.config.show_friendly_names);
-        let content = format!("{}{file_name}", if hovered { "> " } else { "" });
-
-        ListItem::new(Line::from(vec![
-            file_prefix_ui,
-            Span::from(content).style(style),
-        ]))
-    }
-
-    fn file_row_addon_header(
-        character: &Character,
-        count: usize,
-        collapsed: bool,
-        hovered: bool,
-    ) -> ListItem<'_> {
-        let any_addon_file_selected = character.any_addon_file_selected();
-        let all_addon_file_selected = character.all_addon_files_selected();
-
-        let colour = if all_addon_file_selected {
-            SELECTED_FG
-        } else if any_addon_file_selected {
-            Color::Yellow
-        } else {
-            STD_FG
-        };
-
-        let icon = if collapsed { "▶" } else { "▼" };
-        let label = format!("Addon Options ({count})");
-        let content = format!(
-            "{} {label}",
-            if hovered {
-                format!("{icon} >")
-            } else {
-                icon.to_string()
-            }
-        );
-
-        let dropdown_style = Style::default()
-            .fg(colour)
-            .add_modifier(Modifier::BOLD)
-            .add_modifier(Modifier::ITALIC);
-
-        ListItem::new(Line::from(content).style(dropdown_style))
-    }
-
-    fn file_row_addon_item<'a, 'b: 'a>(
-        &'a self,
-        character: &Character,
-        file_idx: usize,
-        hovered: bool,
-    ) -> ListItem<'b> {
-        const ADDON_IDENT: usize = 3;
-        let indent = " ".repeat(ADDON_IDENT);
-
-        let selected = character.selected_addon_files[file_idx];
-        let file = &character.addon_files()[file_idx];
-        let has_friendly = file.has_friendly_name();
-
-        let fg_colour = if selected {
-            SELECTED_FG
-        } else if has_friendly && self.config.show_friendly_names {
-            SPECIAL_FG
-        } else {
-            STD_FG
-        };
-        let mut style = Style::default().fg(fg_colour);
-
-        let file_prefix_ui = Span::from(format!(
-            "{indent}[{}] 📦 ",
-            if selected { "✓" } else { " " }
-        ))
-        .style(style);
-
-        if self.config.show_friendly_names && has_friendly {
-            style = style.add_modifier(Modifier::ITALIC);
-        }
-
-        let file_name = file.display_stem(self.config.show_friendly_names);
-        let content = format!("{}{file_name}", if hovered { "> " } else { "" });
-
-        ListItem::new(Line::from(vec![
-            file_prefix_ui,
-            Span::from(content).style(style),
-        ]))
-    }
-
+    /// Render the file list panel.
     fn file_list(&mut self, area: Rect, buf: &mut Buffer) {
         let char_index = self.get_selected_character_index();
         let selected_character = char_index.and_then(|idx| self.characters.get(idx));
-
-        let title = selected_character.map_or_else(
-            || Line::styled(" Files ", Style::default().add_modifier(Modifier::BOLD)),
-            |character| {
-                let style = Style::default().add_modifier(Modifier::BOLD);
-                let files_span = Span::from(" Files - ").style(style);
-                let char_span = Span::from(format!("{} ", character.name()))
-                    .style(style.fg(character.character.class.class_colour()));
-                Line::from(vec![files_span, char_span])
-            },
-        );
-        let block = Block::bordered().title(title).border_set(border::THICK);
-
-        let Some(character) = selected_character else {
-            Paragraph::new("No character selected")
-                .block(block)
-                .render(area, buf);
-            return;
+        let show_highlight = self.input_mode == InputMode::FileSelection;
+        let config = FileListConfig {
+            show_friendly_names: self.config.show_friendly_names,
         };
 
-        let show_highlight = self.input_mode == InputMode::FileSelection;
-
-        let rows = Self::file_rows_for_character(character);
-
-        let items = rows
-            .iter()
-            .enumerate()
-            .map(|(row_idx, row)| {
-                let hovered = show_highlight
-                    && self
-                        .file_list_state
-                        .selected()
-                        .is_some_and(|sel| sel == row_idx);
-
-                match *row {
-                    FileRowKind::File(file_idx) => {
-                        self.file_row_file_item(character, file_idx, hovered)
-                    }
-                    FileRowKind::AddonHeader { collapsed, count } => {
-                        Self::file_row_addon_header(character, count, collapsed, hovered)
-                    }
-                    FileRowKind::AddonFile(file_idx) => {
-                        self.file_row_addon_item(character, file_idx, hovered)
-                    }
-                }
-            })
-            .collect::<Vec<ListItem>>();
-
-        let mut list_view = List::new(items)
-            .block(block)
-            .style(Style::new().white())
-            .repeat_highlight_symbol(true)
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
-            .direction(ListDirection::TopToBottom);
-
-        if show_highlight {
-            list_view =
-                list_view.highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG));
-        }
-
-        StatefulWidget::render(list_view, area, buf, &mut self.file_list_state);
+        self.file_list_widget
+            .render(area, buf, selected_character, show_highlight, &config);
     }
 
+    /// Render the console output panel.
     fn console_panel(&mut self, area: Rect, buf: &mut Buffer) {
         let title = Line::styled(
             " Console Output ",
@@ -1206,6 +816,7 @@ impl ChronoBindApp {
         Paragraph::new(log_text).block(block).render(area, buf);
     }
 
+    /// Render the popup menu.
     fn render_popup(&self, area: Rect, buf: &mut Buffer) {
         let Some(popup) = &self.popup else {
             return;
@@ -1241,8 +852,8 @@ impl ChronoBindApp {
                         .bg(HOVER_BG)
                         .fg(Color::White);
                 }
-                let prefix = if hovered { "> " } else { "" };
-                ListItem::new(format!("{prefix}{text}")).style(style)
+                let line = Line::from(format!("{}{text}", highlight_symbol(hovered))).centered();
+                ListItem::new(line).style(style)
             })
             .collect();
 
@@ -1252,10 +863,23 @@ impl ChronoBindApp {
         Widget::render(list, area, buf);
     }
 
+    /// Render the top title bar.
+    fn top_bar(&self, area: Rect, buf: &mut Buffer) {
+        let branch_display = self.get_selected_branch_install().map_or_else(
+            || "No branch selected".to_string(),
+            wow::WowInstall::display_branch_name,
+        );
+        let title_text = format!(" ChronoBind - {branch_display} ");
+        let line_style = Style::default().fg(Color::White);
+        let title_line = Line::from(Span::styled(title_text, Style::default())).style(line_style);
+        title_line.render(area, buf);
+    }
+
+    /// Render the bottom status bar.
     #[allow(clippy::cast_possible_truncation)]
     fn bottom_bar(&self, area: Rect, buf: &mut Buffer) {
         let suffix_options = ["q: Quit".to_string()];
-        let status_elements = if self.config.show_output {
+        let status_elements = if self.show_console {
             vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
             match self.input_mode {
@@ -1315,6 +939,79 @@ impl ChronoBindApp {
     }
 }
 
+// Popups..
+impl ChronoBindApp {
+    /// Show the backup options popup for the given character index.
+    pub fn show_backup_popup(&mut self, char_idx: usize) {
+        if self.characters.get(char_idx).is_none() {
+            log::error!("Invalid character index for backup popup: {char_idx}");
+            return;
+        }
+        let popup = PopupState::new(
+            " Backup Options ",
+            vec![
+                "Backup selected files".to_string(),
+                "Backup all files".to_string(),
+                "Restore from backup".to_string(),
+            ],
+            Box::new(handle_character_backup_popup),
+        )
+        .with_context(char_idx);
+        self.open_popup(popup);
+    }
+
+    /// Show the restore from backup popup for the given character index.
+    pub fn show_restore_popup(&mut self, char_idx: usize) {
+        self.refresh_character_backups(char_idx);
+        let Some(character) = self.characters.get(char_idx) else {
+            log::error!("Invalid character index for restore popup: {char_idx}");
+            return;
+        };
+        let items = character
+            .character
+            .backups
+            .iter()
+            .map(|backup| {
+                format!(
+                    "{} {}{}",
+                    backup.char_name,
+                    display_backup_time(&backup.timestamp),
+                    if backup.is_paste { " (Pasted)" } else { "" }
+                )
+            })
+            .collect_vec();
+        let popup = PopupState::new(
+            format!(" Restore {} ", self.characters[char_idx].display_name(true)),
+            items,
+            Box::new(handle_character_restore_popup),
+        )
+        .with_context(char_idx);
+        self.open_popup(popup);
+    }
+
+    /// Show the paste confirmation popup for the given character index and file count.
+    pub fn show_paste_confirm_popup(&mut self, char_idx: usize, file_count: usize) {
+        let title = " Are you sure? ";
+        let plural = if file_count == 1 { "" } else { "s" };
+        let Some(character) = self.characters.get(char_idx) else {
+            log::error!("Invalid character index for paste confirm popup: {char_idx}");
+            return;
+        };
+        let items = vec![
+            format!(
+                "Paste {} file{} to {}",
+                file_count,
+                plural,
+                character.display_name(true)
+            ),
+            "Cancel".to_string(),
+        ];
+        let popup = PopupState::new(title, items, Box::new(handle_paste_confirm_popup))
+            .with_context(char_idx);
+        self.open_popup(popup);
+    }
+}
+
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 /// with minimum width and height constraints
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
@@ -1340,6 +1037,7 @@ impl<'a> From<(&'a Character, &'a wow::WowInstall)> for backend::CharacterWithIn
     }
 }
 
+/// Handle the character backup popup selection once an option is chosen.
 fn handle_character_backup_popup(
     app: &mut ChronoBindApp,
     selected_index: usize,
@@ -1388,6 +1086,7 @@ fn handle_character_backup_popup(
     true
 }
 
+/// Handle the character restore popup selection once an option is chosen.
 fn handle_character_restore_popup(
     app: &mut ChronoBindApp,
     selected_index: usize,
@@ -1435,6 +1134,7 @@ fn handle_character_restore_popup(
     true
 }
 
+/// Handle the paste confirmation popup selection once an option is chosen.
 fn handle_paste_confirm_popup(
     app: &mut ChronoBindApp,
     selected_index: usize,

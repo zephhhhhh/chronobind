@@ -1,3 +1,4 @@
+use const_format::concatcp;
 use ratatui::style::Color;
 
 pub use colours::*;
@@ -74,6 +75,44 @@ mod colours {
     pub const DRUID_COL: Color = Color::Indexed(208);
     pub const DEMONHUNTER_COL: Color = Color::Indexed(134);
     pub const EVOKER_COL: Color = Color::Indexed(66);
+}
+
+// Icons, formatting, etc..
+
+/// Icon representing a collapsed item.
+pub const COLLAPSED_ICON: &str = "▶";
+/// Icon representing a collapsed item.
+pub const EXPANDED_ICON: &str = "▼";
+
+/// Symbol used to highlight selected items.
+pub const HIGHLIGHT_SYMBOL: &str = ">";
+
+/// Get the highlight symbol based on whether the item is highlighted.
+/// # Returns
+/// The highlight symbol followed by a space if highlighted, otherwise an empty string.
+#[inline]
+#[must_use]
+pub const fn highlight_symbol(highlighted: bool) -> &'static str {
+    const SYMBOL_WITH_SPACE: &str = concatcp!(HIGHLIGHT_SYMBOL, " ");
+    if highlighted { SYMBOL_WITH_SPACE } else { "" }
+}
+
+/// Get the expandable icon based on collapsed state.
+#[inline]
+#[must_use]
+pub const fn expandable_icon(collapsed: bool) -> &'static str {
+    if collapsed {
+        COLLAPSED_ICON
+    } else {
+        EXPANDED_ICON
+    }
+}
+
+/// Indentation string for nested items.
+#[inline]
+#[must_use]
+pub fn indentation(indent_level: usize) -> String {
+    " ".repeat(indent_level)
 }
 
 /// Convert an (r, g, b) tuple into a `Color::Rgb`
