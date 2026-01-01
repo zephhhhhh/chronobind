@@ -86,6 +86,8 @@ pub const EXPANDED_ICON: &str = "▼";
 
 /// Symbol used to highlight selected items.
 pub const HIGHLIGHT_SYMBOL: &str = ">";
+/// Reverse highlight symbol used to indicate selection.
+pub const HIGHLIGHT_SYMBOL_REVERSED: &str = "<";
 
 /// Get the highlight symbol based on whether the item is highlighted.
 /// # Returns
@@ -95,6 +97,28 @@ pub const HIGHLIGHT_SYMBOL: &str = ">";
 pub const fn highlight_symbol(highlighted: bool) -> &'static str {
     const SYMBOL_WITH_SPACE: &str = concatcp!(HIGHLIGHT_SYMBOL, " ");
     if highlighted { SYMBOL_WITH_SPACE } else { "" }
+}
+
+/// Get the reversed highlight symbol based on whether the item is highlighted.
+/// # Returns
+/// The highlight symbol followed by a space if highlighted, otherwise an empty string.
+#[inline]
+#[must_use]
+pub const fn highlight_symbol_rev(highlighted: bool) -> &'static str {
+    const SYMBOL_WITH_SPACE: &str = concatcp!(" ", HIGHLIGHT_SYMBOL_REVERSED);
+    if highlighted { SYMBOL_WITH_SPACE } else { "" }
+}
+
+/// Get text wrapped with highlight symbols if highlighted.
+#[inline]
+#[must_use]
+pub fn dual_highlight_symbol(text: impl AsRef<str>, highlighted: bool) -> String {
+    format!(
+        "{}{}{}",
+        highlight_symbol(highlighted),
+        text.as_ref(),
+        highlight_symbol_rev(highlighted)
+    )
 }
 
 /// Get the expandable icon based on collapsed state.
@@ -113,6 +137,12 @@ pub const fn expandable_icon(collapsed: bool) -> &'static str {
 #[must_use]
 pub fn indentation(indent_level: usize) -> String {
     " ".repeat(indent_level)
+}
+
+/// Format a `DateTime<Local>` for display in the UI.
+#[must_use]
+pub fn display_backup_time(dt: &chrono::DateTime<chrono::Local>) -> String {
+    dt.format(crate::backend::DISPLAY_TIME_FORMAT).to_string()
 }
 
 /// Convert an (r, g, b) tuple into a `Color::Rgb`

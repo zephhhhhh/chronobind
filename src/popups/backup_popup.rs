@@ -1,0 +1,158 @@
+#[allow(clippy::wildcard_imports)]
+use crate::palette::*;
+use crate::{
+    Character,
+    widgets::popup::{Popup, PopupCommand},
+};
+
+use ratatui::{
+    buffer::Buffer,
+    crossterm::event::{KeyCode, KeyEvent},
+    layout::{Alignment, Rect},
+    style::{Color, Modifier, Style},
+    symbols::border,
+    text::Line,
+    widgets::{Block, Clear, List, ListDirection, ListItem, ListState, StatefulWidget, Widget},
+};
+
+/// Different commands that can be issued from a backup popup.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BackupPopupCommand {
+    /// Command to backup selected files.
+    BackupSelectedFiles,
+    /// Command to backup all files.
+    BackupAllFiles,
+    /// Command to restore from backup.
+    RestoreFromBackup,
+}
+
+/// Popup for backup options for a character.
+#[derive(Debug, Clone)]
+pub struct BackupPopup {
+    /// The character associated with the backup popup.
+    pub character: Character,
+    /// The index of the character in the main character list.
+    pub character_index: usize,
+
+    /// Whether the popup should close.
+    pub close: bool,
+    /// The state of the list within the popup.
+    pub state: ListState,
+
+    /// Commands issued by the popup.
+    pub commands: Vec<PopupCommand>,
+}
+
+impl BackupPopup {
+    #[must_use]
+    pub fn new(character: Character, character_index: usize) -> Self {
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
+        Self {
+            character,
+            character_index,
+
+            close: false,
+            state: list_state,
+
+            commands: vec![],
+        }
+    }
+
+    /// Push a command to the popup's command list.
+    #[inline]
+    pub fn push_command(&mut self, command: BackupPopupCommand) {
+        self.commands
+            .push(PopupCommand::Backup(self.character_index, command));
+    }
+
+    /// Push a command to the popup's command list and close the popup.
+    #[inline]
+    pub fn push_command_close(&mut self, command: BackupPopupCommand) {
+        self.push_command(command);
+        self.close = true;
+    }
+}
+
+impl Popup for BackupPopup {
+    fn on_key_down(&mut self, key: &KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state
+                    .select(self.state.selected().map(|i| i.saturating_sub(1)));
+            }
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state
+                    .select(self.state.selected().map(|i| i.saturating_add(1)));
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                if let Some(selected) = self.state.selected() {
+                    match selected {
+                        0 => self.push_command_close(BackupPopupCommand::BackupSelectedFiles),
+                        1 => self.push_command_close(BackupPopupCommand::BackupAllFiles),
+                        2 => self.push_command(BackupPopupCommand::RestoreFromBackup),
+                        _ => {}
+                    }
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.close = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+        // Get title styling based on context (character if applicable)
+        let title_style = Style::default().add_modifier(Modifier::BOLD);
+
+        let block = Block::bordered()
+            .title(Line::styled(" Backup Options ", title_style))
+            .border_set(border::ROUNDED)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Black));
+
+        let item_names = [
+            "Backup selected files",
+            "Backup all files",
+            "Restore from backup",
+        ];
+
+        let items = item_names
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let hovered = i == self.state.selected().unwrap_or(0);
+                let content = dual_highlight_symbol(item, hovered);
+                let line = Line::from(content).centered();
+                ListItem::new(line)
+            })
+            .collect::<Vec<ListItem>>();
+
+        let list_view = List::new(items)
+            .block(block)
+            .style(Style::new().white())
+            .highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG))
+            .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
+            .direction(ListDirection::TopToBottom);
+
+        Widget::render(Clear, area, buf);
+        StatefulWidget::render(list_view, area, buf, &mut self.state);
+    }
+
+    fn should_close(&self) -> bool {
+        self.close
+    }
+    fn close(&mut self) {
+        self.close = true;
+    }
+    fn popup_identifier(&self) -> &'static str {
+        "backup_popup"
+    }
+    fn bottom_bar_options(&self) -> Option<Vec<&str>> {
+        Some(vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"])
+    }
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+        Some(&mut self.commands)
+    }
+}

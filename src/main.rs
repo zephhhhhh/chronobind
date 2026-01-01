@@ -4,16 +4,15 @@
 pub mod backend;
 pub mod files;
 pub mod palette;
+pub mod popups;
 pub mod tui_log;
 pub mod widgets;
 pub mod wow;
 
+use ratatui::widgets::Widget;
 use widgets::character_list::{CharacterListWidget, NavigationAction};
+use widgets::console::ConsoleWidget;
 use widgets::file_list::{FileListConfig, FileListWidget, FileSelectionAction};
-use widgets::popup::PopupState;
-
-#[allow(clippy::wildcard_imports)]
-use palette::*;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -22,14 +21,16 @@ use color_eyre::Result;
 use color_eyre::eyre::Context;
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::layout::{Alignment, Constraint, Direction, Flex, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::symbols::border;
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph, Widget};
 use ratatui::{DefaultTerminal, Frame};
 
+use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
+use crate::popups::paste_popup::{PasteConfirmPopup, PastePopupCommand};
+use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
+use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::WowCharacter;
 
 /// Entry point..
@@ -66,13 +67,15 @@ fn set_console_window_title(title: &str) -> crate::files::AnyResult<()> {
     Ok(())
 }
 
-pub enum PopupKind {
-    BackupPopup,
-}
+/// Type alias for a character index.
+pub type CharacterIndex = usize;
 
-pub struct PopupInfo {
-    pub kind: PopupKind,
-    pub items: Vec<String>,
+/// Different commands that can be issued from a popup.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PopupAppCommand {
+    Backup(CharacterIndex, BackupPopupCommand),
+    Restore(CharacterIndex, RestorePopupCommand),
+    Paste(CharacterIndex, PastePopupCommand),
 }
 
 /// Representation of a `WoW` character along with its selected files and
@@ -127,6 +130,13 @@ impl Character {
         &self.character.name
     }
 
+    /// Get the class colour of the character.
+    #[inline]
+    #[must_use]
+    pub const fn class_colour(&self) -> Color {
+        self.character.class.class_colour()
+    }
+
     /// Get the config files of the character.
     #[inline]
     #[must_use]
@@ -139,6 +149,13 @@ impl Character {
     #[must_use]
     pub fn addon_files(&self) -> &[wow::WowCharacterFile] {
         &self.character.addon_files
+    }
+
+    /// Get the backups of the character.
+    #[inline]
+    #[must_use]
+    pub fn backups(&self) -> &[wow::WowBackup] {
+        &self.character.backups
     }
 
     /// Check if a config file at the given index is selected.
@@ -280,7 +297,7 @@ enum InputMode {
     Navigation,
     /// Selecting files for a character.
     FileSelection,
-    /// Interacting with a popup menu.
+    /// Interacting with a custom popup.
     Popup,
 }
 
@@ -305,18 +322,18 @@ pub struct ChronoBindApp {
     /// Current input mode of the application.
     input_mode: InputMode,
 
-    /// Whether to show the console debug output.
-    show_console: bool,
-    /// Scroll offset for the debug console.
-    debug_scroll_offset: usize,
+    /// Console output widget.
+    console_widget: ConsoleWidget,
 
     /// Character list widget for displaying characters.
     character_list_widget: CharacterListWidget,
     /// File list widget for displaying character files.
     file_list_widget: FileListWidget,
 
-    /// Current popup state, if any.
-    popup: Option<PopupState>,
+    /// The previous input mode before opening a popup.
+    popup_previous_input: Option<InputMode>,
+    /// Current popup, if any.
+    popup: Option<PopupPtr>,
 }
 
 impl ChronoBindApp {
@@ -346,12 +363,11 @@ impl ChronoBindApp {
 
             input_mode: InputMode::Navigation,
 
-            show_console: false,
-            debug_scroll_offset: 0,
-
+            console_widget: ConsoleWidget::new(),
             character_list_widget: CharacterListWidget::new(),
             file_list_widget: FileListWidget::new(),
 
+            popup_previous_input: None,
             popup: None,
         };
 
@@ -459,9 +475,25 @@ impl ChronoBindApp {
 
 impl ChronoBindApp {
     /// Open a popup menu with the given state.
-    pub fn open_popup(&mut self, popup: PopupState) {
-        self.popup = Some(popup);
+    pub fn open_popup<T: Popup + Send + Sync + 'static>(&mut self, popup: T) {
+        self.popup = Some(Box::new(popup));
+        if self.popup_previous_input.is_none() {
+            self.popup_previous_input = Some(self.input_mode);
+        }
         self.input_mode = InputMode::Popup;
+    }
+
+    /// Close the current popup, restoring previous input mode.
+    pub fn close_popup(&mut self) {
+        let (popup_id, should_close) = if let Some(popup) = &self.popup {
+            (popup.popup_identifier().to_string(), popup.should_close())
+        } else {
+            log::warn!("No popup to close");
+            return;
+        };
+        log::debug!("Closing popup: {popup_id} (should_close: {should_close})");
+        self.input_mode = self.popup_previous_input.take().unwrap_or_default();
+        self.popup = None;
     }
 
     /// Runs the main application loop.
@@ -522,10 +554,8 @@ impl ChronoBindApp {
         self.main_screen(chunks[1], frame.buffer_mut());
         self.bottom_bar(chunks[2], frame.buffer_mut());
 
-        // Render popup on top if it's open
-        if self.input_mode == InputMode::Popup {
-            let popup_area = popup_area(frame.area(), 35, 30);
-            self.render_popup(popup_area, frame.buffer_mut());
+        if let Some(popup) = &mut self.popup {
+            popup.render(frame);
         }
     }
 
@@ -542,7 +572,7 @@ impl ChronoBindApp {
                 log::debug!("Character list refreshed.");
             }
             KeyCode::F(1) => {
-                self.show_console = !self.show_console;
+                self.console_widget.toggle_show();
             }
             KeyCode::F(2) => {
                 self.config.show_friendly_names = !self.config.show_friendly_names;
@@ -554,47 +584,14 @@ impl ChronoBindApp {
             _ => {}
         }
 
-        if self.show_console {
-            self.handle_console_output_keys(key);
+        if self.console_widget.is_visible() {
+            self.console_widget.handle_input(key);
         } else {
             match self.input_mode {
                 InputMode::Navigation => self.handle_char_navigation_commands(key),
                 InputMode::FileSelection => self.handle_file_selection_commands(key),
-                InputMode::Popup => self.handle_popup_keys(key),
+                InputMode::Popup => {}
             }
-        }
-    }
-
-    /// Handle scrolling input for the console output.
-    const fn handle_console_output_keys(&mut self, key: &KeyEvent) {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let speed_multiplier = if ctrl { 3 } else { 1 };
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w') => {
-                self.debug_scroll_offset =
-                    self.debug_scroll_offset.saturating_add(speed_multiplier);
-            }
-            KeyCode::Down | KeyCode::Char('s') => {
-                self.debug_scroll_offset =
-                    self.debug_scroll_offset.saturating_sub(speed_multiplier);
-            }
-            KeyCode::PageUp => {
-                self.debug_scroll_offset = self
-                    .debug_scroll_offset
-                    .saturating_add(10 * speed_multiplier);
-            }
-            KeyCode::PageDown => {
-                self.debug_scroll_offset = self
-                    .debug_scroll_offset
-                    .saturating_sub(10 * speed_multiplier);
-            }
-            KeyCode::Home => {
-                self.debug_scroll_offset = 0;
-            }
-            KeyCode::End => {
-                self.debug_scroll_offset = tui_log::TuiLogger::MAX_LOG_SIZE;
-            }
-            _ => {}
         }
     }
 
@@ -677,48 +674,66 @@ impl ChronoBindApp {
         }
     }
 
-    /// Handle popup menu key events.
-    fn handle_popup_keys(&mut self, key: &KeyEvent) {
-        if let Some(popup) = &mut self.popup {
-            match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => {
-                    self.input_mode = InputMode::Navigation;
-                    self.popup = None;
-                    log::debug!("Closed popup");
+    /// Handle a single popup command.
+    fn handle_popup_command(&mut self, command: &PopupAppCommand) {
+        match command {
+            PopupAppCommand::Backup(char_idx, backup_command) => match backup_command {
+                BackupPopupCommand::BackupSelectedFiles => {
+                    perform_character_backup(self, *char_idx, true);
                 }
-                KeyCode::Up | KeyCode::Char('w') => {
-                    popup.move_up();
+                BackupPopupCommand::BackupAllFiles => {
+                    perform_character_backup(self, *char_idx, false);
                 }
-                KeyCode::Down | KeyCode::Char('s') => {
-                    popup.move_down();
+                BackupPopupCommand::RestoreFromBackup => {
+                    let Some(character) = self.characters.get(*char_idx).cloned() else {
+                        return;
+                    };
+                    self.open_popup(RestorePopup::new(character, *char_idx));
                 }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.handle_popup_selection();
+            },
+            PopupAppCommand::Restore(char_idx, restore_command) => match restore_command {
+                RestorePopupCommand::RestoreBackup(backup_index) => {
+                    perform_character_restore(self, *backup_index, *char_idx);
                 }
-                _ => {}
-            }
+            },
+            PopupAppCommand::Paste(char_idx, paste_command) => match paste_command {
+                PastePopupCommand::ConfirmPaste => {
+                    let Some(source_char_idx) = &self.copied_char else {
+                        log::error!("No character found for paste operation!");
+                        return;
+                    };
+                    perform_character_paste(self, *source_char_idx, *char_idx);
+                }
+            },
         }
     }
 
-    /// Handle the popup selection action.
-    fn handle_popup_selection(&mut self) {
-        if self.popup.is_none() {
-            return;
+    /// Dispatch events to the popup, if any, also handlings closing the popup.
+    /// Returns true if the event was handled and should not propagate further.
+    fn dispatch_popup_commands(&mut self, ev: &Event) -> bool {
+        let Some(popup) = &mut self.popup else {
+            return false;
+        };
+        let blocking = popup.handle_event(ev);
+        let closing = popup.should_close();
+        if let Some(commands) = popup.commands() {
+            for command in commands {
+                self.handle_popup_command(&command);
+            }
         }
-        let popup = unsafe { &mut *std::ptr::from_mut(self.popup.as_mut().unwrap()) };
-        let should_close_popup = popup.handle_selection(self).unwrap_or(true);
-
-        if should_close_popup {
-            self.input_mode = InputMode::Navigation;
-            self.popup = None;
+        if closing {
+            self.close_popup();
         }
+        blocking
     }
 
     /// Handle input events.
     fn handle_events(&mut self) -> Result<()> {
         if event::poll(Duration::from_millis(250)).context("Event poll failed")? {
             let ev = event::read().context("Event read failed")?;
-            if let Event::Key(k) = ev
+
+            if !self.dispatch_popup_commands(&ev)
+                && let Event::Key(k) = ev
                 && k.kind == KeyEventKind::Press
             {
                 self.on_key_down(&k);
@@ -732,7 +747,7 @@ impl ChronoBindApp {
 impl ChronoBindApp {
     /// Render the main screen UI.
     fn main_screen(&mut self, area: Rect, buf: &mut Buffer) {
-        if self.show_console {
+        if self.console_widget.is_visible() {
             // Split into three sections: characters, files, and debug
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -782,104 +797,49 @@ impl ChronoBindApp {
 
     /// Render the console output panel.
     fn console_panel(&mut self, area: Rect, buf: &mut Buffer) {
-        let title = Line::styled(
-            " Console Output ",
-            Style::default().add_modifier(Modifier::BOLD),
-        );
-
-        let block = Block::bordered().title(title).border_set(border::THICK);
-
-        let log_lines: Option<Vec<Line>> = tui_log::with_debug_logs(|logs| {
-            let visible_lines = area.height.saturating_sub(2) as usize;
-            let total_logs = logs.len();
-
-            let max_scroll = total_logs.saturating_sub(visible_lines);
-            self.debug_scroll_offset = self.debug_scroll_offset.min(max_scroll);
-
-            // Get the visible slice of logs starting from scroll_offset
-            // Since logs are newest-first, scrolling up shows older logs.
-            logs.iter()
-                .rev()
-                .skip(max_scroll - self.debug_scroll_offset)
-                .take(visible_lines)
-                .map(|log| {
-                    let color = log_level_colour(log.level());
-                    Line::from(log.content().to_string()).style(Style::default().fg(color))
-                })
-                .collect()
-        });
-
-        let log_text = log_lines.unwrap_or_else(|| {
-            vec![Line::from("Failed to retrieve logs").style(Style::default().fg(Color::Red))]
-        });
-
-        Paragraph::new(log_text).block(block).render(area, buf);
-    }
-
-    /// Render the popup menu.
-    fn render_popup(&self, area: Rect, buf: &mut Buffer) {
-        let Some(popup) = &self.popup else {
-            return;
-        };
-
-        // Get title styling based on context (character if applicable)
-        let title = format!(" {} ", popup.title);
-        let mut title_style = Style::default().add_modifier(Modifier::BOLD);
-
-        // If context is a character index, color the title with their class color
-        if let Some(char_idx) = popup.context_id
-            && let Some(character) = self.characters.get(char_idx)
-        {
-            title_style = title_style.fg(character.character.class.class_colour());
-        }
-
-        let block = Block::bordered()
-            .title(Line::styled(title, title_style))
-            .border_set(border::ROUNDED)
-            .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Black));
-
-        let items: Vec<ListItem> = popup
-            .items
-            .iter()
-            .enumerate()
-            .map(|(i, text)| {
-                let hovered = i == popup.selected_index;
-                let mut style = Style::default();
-                if hovered {
-                    style = style
-                        .add_modifier(Modifier::BOLD)
-                        .bg(HOVER_BG)
-                        .fg(Color::White);
-                }
-                let line = Line::from(format!("{}{text}", highlight_symbol(hovered))).centered();
-                ListItem::new(line).style(style)
-            })
-            .collect();
-
-        let list = List::new(items).block(block);
-
-        Widget::render(Clear, area, buf);
-        Widget::render(list, area, buf);
+        self.console_widget.render(area, buf);
     }
 
     /// Render the top title bar.
+    #[allow(clippy::cast_possible_truncation)]
     fn top_bar(&self, area: Rect, buf: &mut Buffer) {
         let branch_display = self.get_selected_branch_install().map_or_else(
             || "No branch selected".to_string(),
             wow::WowInstall::display_branch_name,
         );
-        let title_text = format!(" ChronoBind - {branch_display} ");
         let line_style = Style::default().fg(Color::White);
-        let title_line = Line::from(Span::styled(title_text, Style::default())).style(line_style);
-        title_line.render(area, buf);
+        let title_span = Span::styled(format!(" ChronoBind - {branch_display} "), line_style);
+
+        let copy_display = if let Some(char_idx) = &self.copied_char
+            && let Some(copied_char) = self.characters.get(*char_idx)
+        {
+            let char_text = copied_char.display_name(true);
+            Line::from(vec![
+                Span::from(" Copying: "),
+                Span::from(char_text)
+                    .style(Style::default().fg(copied_char.character.class.class_colour())),
+            ])
+            .style(Style::default().bg(Color::Black).fg(Color::White))
+        } else {
+            Line::from("")
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Min(0),                              // left text takes remaining space
+                Constraint::Length(copy_display.width() as u16), // right text fixed width
+            ])
+            .split(area);
+
+        title_span.render(chunks[0], buf);
+        copy_display.render(chunks[1], buf);
     }
 
     /// Render the bottom status bar.
-    #[allow(clippy::cast_possible_truncation)]
     fn bottom_bar(&self, area: Rect, buf: &mut Buffer) {
         let suffix_options = ["q: Quit".to_string()];
-        let status_elements = if self.show_console {
+        let status_elements = if self.console_widget.is_visible() {
             vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
             match self.input_mode {
@@ -898,7 +858,9 @@ impl ChronoBindApp {
                     "b: Backup",
                     "c: Copy",
                 ],
-                InputMode::Popup => vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"],
+                InputMode::Popup => self.popup.as_ref().map_or_else(Vec::new, |popup| {
+                    popup.bottom_bar_options().unwrap_or_default()
+                }),
             }
         };
 
@@ -910,32 +872,8 @@ impl ChronoBindApp {
             .chain(suffix_options)
             .join(" | ");
 
-        let right_line = if let Some(char_idx) = &self.copied_char
-            && let Some(copied_char) = self.characters.get(*char_idx)
-        {
-            let char_text = copied_char.display_name(true);
-            Line::from(vec![
-                Span::from(" Copying: "),
-                Span::from(char_text)
-                    .style(Style::default().fg(copied_char.character.class.class_colour())),
-            ])
-            .style(Style::default().bg(Color::Black).fg(Color::White))
-        } else {
-            Line::from("")
-        };
-
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(0),                            // left text takes remaining space
-                Constraint::Length(right_line.width() as u16), // right text fixed width
-            ])
-            .split(area);
-
         let status_line = Line::from(Span::styled(final_text, Style::default())).style(line_style);
-
-        status_line.render(chunks[0], buf);
-        right_line.render(chunks[1], buf);
+        status_line.render(area, buf);
     }
 }
 
@@ -943,89 +881,22 @@ impl ChronoBindApp {
 impl ChronoBindApp {
     /// Show the backup options popup for the given character index.
     pub fn show_backup_popup(&mut self, char_idx: usize) {
-        if self.characters.get(char_idx).is_none() {
+        let Some(character) = self.characters.get(char_idx).cloned() else {
             log::error!("Invalid character index for backup popup: {char_idx}");
             return;
-        }
-        let popup = PopupState::new(
-            " Backup Options ",
-            vec![
-                "Backup selected files".to_string(),
-                "Backup all files".to_string(),
-                "Restore from backup".to_string(),
-            ],
-            Box::new(handle_character_backup_popup),
-        )
-        .with_context(char_idx);
-        self.open_popup(popup);
-    }
-
-    /// Show the restore from backup popup for the given character index.
-    pub fn show_restore_popup(&mut self, char_idx: usize) {
-        self.refresh_character_backups(char_idx);
-        let Some(character) = self.characters.get(char_idx) else {
-            log::error!("Invalid character index for restore popup: {char_idx}");
-            return;
         };
-        let items = character
-            .character
-            .backups
-            .iter()
-            .map(|backup| {
-                format!(
-                    "{} {}{}",
-                    backup.char_name,
-                    display_backup_time(&backup.timestamp),
-                    if backup.is_paste { " (Pasted)" } else { "" }
-                )
-            })
-            .collect_vec();
-        let popup = PopupState::new(
-            format!(" Restore {} ", self.characters[char_idx].display_name(true)),
-            items,
-            Box::new(handle_character_restore_popup),
-        )
-        .with_context(char_idx);
-        self.open_popup(popup);
+
+        self.open_popup(BackupPopup::new(character, char_idx));
     }
 
-    /// Show the paste confirmation popup for the given character index and file count.
     pub fn show_paste_confirm_popup(&mut self, char_idx: usize, file_count: usize) {
-        let title = " Are you sure? ";
-        let plural = if file_count == 1 { "" } else { "s" };
-        let Some(character) = self.characters.get(char_idx) else {
+        let Some(character) = self.characters.get(char_idx).cloned() else {
             log::error!("Invalid character index for paste confirm popup: {char_idx}");
             return;
         };
-        let items = vec![
-            format!(
-                "Paste {} file{} to {}",
-                file_count,
-                plural,
-                character.display_name(true)
-            ),
-            "Cancel".to_string(),
-        ];
-        let popup = PopupState::new(title, items, Box::new(handle_paste_confirm_popup))
-            .with_context(char_idx);
-        self.open_popup(popup);
+
+        self.open_popup(PasteConfirmPopup::new(character, char_idx, file_count));
     }
-}
-
-/// helper function to create a centered rect using up certain percentage of the available rect `r`
-/// with minimum width and height constraints
-fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    const MIN_WIDTH: u16 = 35;
-    const MIN_HEIGHT: u16 = 10;
-
-    let width = ((area.width * percent_x) / 100).max(MIN_WIDTH);
-    let height = ((area.height * percent_y) / 100).max(MIN_HEIGHT);
-
-    let vertical = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center);
-    let horizontal = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center);
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
 }
 
 impl<'a> From<(&'a Character, &'a wow::WowInstall)> for backend::CharacterWithInstall<'a> {
@@ -1037,37 +908,29 @@ impl<'a> From<(&'a Character, &'a wow::WowInstall)> for backend::CharacterWithIn
     }
 }
 
-/// Handle the character backup popup selection once an option is chosen.
-fn handle_character_backup_popup(
-    app: &mut ChronoBindApp,
-    selected_index: usize,
-    option: &str,
-    char_idx: usize,
-) -> bool {
+/// Perform the character backup operation.
+fn perform_character_backup(app: &ChronoBindApp, char_idx: usize, selective: bool) -> bool {
     let Some(character) = app.character_with_install(char_idx) else {
         log::error!("Invalid character index for backup popup: {char_idx}");
         return true;
     };
 
     log::info!(
-        "Selected backup option: {option} for character {} on branch {}",
+        "Backing up {} for character {} on branch {}",
+        if selective {
+            "selected files"
+        } else {
+            "all files"
+        },
         character.0.name(),
         character.1.branch_ident
     );
 
-    if selected_index == 2 {
-        app.show_restore_popup(char_idx);
-        return false;
-    }
-
-    let backup_result = if selected_index == 0 {
+    let backup_result = if selective {
         let selected_files = character.0.get_all_selected_files();
         backend::backup_character_files(&character.into(), &selected_files, false)
-    } else if selected_index == 1 {
-        backend::backup_character(&character.into(), false)
     } else {
-        log::error!("Invalid backup option selected: {selected_index}");
-        return true; // Close popup on error
+        backend::backup_character(&character.into(), false)
     };
 
     match backup_result {
@@ -1077,40 +940,35 @@ fn handle_character_backup_popup(
                 character.0.name(),
                 backup_path.display()
             );
+            true
         }
         Err(e) => {
             log::error!("Backup failed for character {}: {}", character.0.name(), e);
+            false
         }
     }
-
-    true
 }
 
-/// Handle the character restore popup selection once an option is chosen.
-fn handle_character_restore_popup(
-    app: &mut ChronoBindApp,
-    selected_index: usize,
-    option: &str,
-    char_idx: usize,
-) -> bool {
+/// Perform the character restore operation.
+fn perform_character_restore(app: &ChronoBindApp, backup_index: usize, char_idx: usize) -> bool {
     let Some(character) = app.character_with_install(char_idx) else {
         log::error!("Invalid character index for backup popup: {char_idx}");
         return true;
     };
-
-    log::info!(
-        "Selected restore option: {option} for character {} on branch {}",
-        character.0.name(),
-        character.1.branch_ident
-    );
-
-    let Some(backup) = character.0.character.backups.get(selected_index).cloned() else {
+    let Some(backup) = character.0.backups().get(backup_index).cloned() else {
         log::error!(
-            "Invalid backup selection index: {selected_index} for character {}",
+            "Invalid backup selection index: {backup_index} for character {}",
             character.0.name()
         );
         return true;
     };
+
+    log::info!(
+        "Restoring backup `{}` for character {} on branch {}",
+        backup.formatted_timestamp(),
+        character.0.name(),
+        character.1.branch_ident
+    );
 
     match backend::restore_backup(&character.into(), &backup.path, app.config.mock_mode) {
         Ok(files_restored) => {
@@ -1120,6 +978,7 @@ fn handle_character_restore_popup(
                 files_restored,
                 backup.formatted_timestamp()
             );
+            true
         }
         Err(e) => {
             log::error!(
@@ -1128,74 +987,58 @@ fn handle_character_restore_popup(
                 backup.formatted_timestamp(),
                 e
             );
+            false
         }
     }
-
-    true
 }
 
-/// Handle the paste confirmation popup selection once an option is chosen.
-fn handle_paste_confirm_popup(
-    app: &mut ChronoBindApp,
-    selected_index: usize,
-    _option: &str,
-    char_idx: usize,
+fn perform_character_paste(
+    app: &ChronoBindApp,
+    source_char_idx: usize,
+    dest_char_idx: usize,
 ) -> bool {
-    let Some(dest_character) = app.character_with_install(char_idx) else {
-        log::error!("Invalid character index for paste popup: {char_idx}");
+    let Some(dest_character) = app.character_with_install(dest_char_idx) else {
+        log::error!("Invalid character index for paste popup: {dest_char_idx}");
         return true;
     };
-    let Some(source_char_idx) = &app.copied_char else {
-        log::error!("No character found for paste operation!");
-        return true;
-    };
-    let Some(source_character) = app.character_with_install(*source_char_idx) else {
+    let Some(source_character) = app.character_with_install(source_char_idx) else {
         log::error!("Invalid source character index for paste operation: {source_char_idx}");
         return true;
     };
 
-    if selected_index == 0 {
-        let files_to_paste = source_character.0.get_all_selected_files();
+    let files_to_paste = source_character.0.get_all_selected_files();
 
-        match backend::paste_character_files(
-            &dest_character.into(),
-            &source_character.into(),
-            &files_to_paste,
-            app.config.mock_mode,
-        ) {
-            Ok(pasted_files) => {
-                if pasted_files == files_to_paste.len() {
-                    log::info!(
-                        "Paste operation completed successfully for character {}. {} files pasted.",
-                        dest_character.0.name(),
-                        pasted_files
-                    );
-                } else {
-                    log::warn!(
-                        "Paste operation completed with partial success for character {}. {}/{} files pasted.",
-                        dest_character.0.name(),
-                        pasted_files,
-                        files_to_paste.len()
-                    );
-                }
-                app.refresh_character(char_idx);
-            }
-            Err(e) => {
-                log::error!(
-                    "Paste operation failed for character {} from {}: {}",
+    match backend::paste_character_files(
+        &dest_character.into(),
+        &source_character.into(),
+        &files_to_paste,
+        app.config.mock_mode,
+    ) {
+        Ok(pasted_files) => {
+            if pasted_files == files_to_paste.len() {
+                log::info!(
+                    "Paste operation completed successfully for character {}. {} files pasted.",
                     dest_character.0.name(),
-                    source_character.0.name(),
-                    e
+                    pasted_files
+                );
+            } else {
+                log::warn!(
+                    "Paste operation completed with partial success for character {}. {}/{} files pasted.",
+                    dest_character.0.name(),
+                    pasted_files,
+                    files_to_paste.len()
                 );
             }
+            true
+        }
+        Err(e) => {
+            log::error!(
+                "Paste operation failed for character {} from {}: {}",
+                dest_character.0.name(),
+                source_character.0.name(),
+                e
+            );
+            false
         }
     }
-
-    true
-}
-
-/// Format a `DateTime<Local>` for display in the UI.
-#[must_use]
-pub fn display_backup_time(dt: &chrono::DateTime<chrono::Local>) -> String {
-    dt.format(backend::DISPLAY_TIME_FORMAT).to_string()
 }
