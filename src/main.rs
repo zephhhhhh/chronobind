@@ -698,6 +698,10 @@ impl ChronoBindApp {
                     perform_character_backup(self, *char_idx, false);
                 }
                 BackupPopupCommand::RestoreFromBackup => {
+                    if !self.refresh_character_backups(*char_idx) {
+                        log::error!("Failed to refresh backups before opening restore menu!");
+                        return;
+                    }
                     let Some(character) = self.characters.get(*char_idx).cloned() else {
                         return;
                     };

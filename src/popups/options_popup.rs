@@ -122,7 +122,7 @@ impl Popup for OptionsPopup {
                     self.interact_with_option(selected);
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
+            KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'o' | 'O') => {
                 self.close();
             }
             _ => {}

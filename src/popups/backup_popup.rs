@@ -95,8 +95,8 @@ impl Popup for BackupPopup {
                     }
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
-                self.close = true;
+            KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'b' | 'B') => {
+                self.close();
             }
             _ => {}
         }
