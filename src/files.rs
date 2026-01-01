@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fs as filesystem;
 use std::path::{Path, PathBuf};
 
+use crate::tui_log::mock_prefix;
+
 pub type AnyResult<T> = Result<T, Box<dyn Error>>;
 
 /// Reads a directory and returns an iterator over all folders within it.
@@ -40,9 +42,16 @@ pub fn read_files_to_string(dir: impl AsRef<Path>) -> AnyResult<impl Iterator<It
 /// Ensure that a directory exists at the given path, creating it if necessary.
 /// # Errors
 /// Returns an error if the directory cannot be created if it does not exist.
-pub fn ensure_directory(path: &Path) -> AnyResult<()> {
+pub fn ensure_directory(path: &Path, mock_mode: bool) -> AnyResult<()> {
     if !path.exists() {
-        filesystem::create_dir_all(path)?;
+        if !mock_mode {
+            filesystem::create_dir_all(path)?;
+        }
+        log::info!(
+            "{}Created directory: {}",
+            mock_prefix(mock_mode),
+            path.display()
+        );
     }
     Ok(())
 }

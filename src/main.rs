@@ -53,6 +53,7 @@ pub struct ChronoBindAppConfig {
     pub show_realm: bool,
     pub show_output: bool,
     pub show_friendly_names: bool,
+    pub mock_mode: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -317,6 +318,7 @@ impl ChronoBindApp {
                 show_realm: false,
                 show_output: false,
                 show_friendly_names: true,
+                mock_mode: true,
             },
             copied_char: None,
         };
@@ -1411,7 +1413,7 @@ fn handle_character_restore_popup(
         return true;
     };
 
-    match backend::restore_backup(&character.into(), &backup.path) {
+    match backend::restore_backup(&character.into(), &backup.path, app.config.mock_mode) {
         Ok(files_restored) => {
             log::info!(
                 "Restore completed successfully for character {}. {} files restored from backup '{}'.",
@@ -1459,6 +1461,7 @@ fn handle_paste_confirm_popup(
             &dest_character.into(),
             &source_character.into(),
             &files_to_paste,
+            app.config.mock_mode,
         ) {
             Ok(pasted_files) => {
                 if pasted_files == files_to_paste.len() {

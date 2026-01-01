@@ -7,6 +7,7 @@ use zip::{
 
 use crate::{
     files::AnyResult,
+    tui_log::mock_prefix,
     wow::{WowCharacter, WowInstall},
 };
 use std::path::PathBuf;
@@ -66,7 +67,7 @@ impl CharacterWithInstall<'_> {
 pub fn backup_character(character: &CharacterWithInstall, paste: bool) -> AnyResult<PathBuf> {
     let char_path = character.get_character_path();
     let backup_dir = character.get_backups_dir();
-    ensure_directory(&backup_dir)?;
+    ensure_directory(&backup_dir, false)?;
 
     let backup_file_name = get_backup_name(character.character, paste);
     let backup_file_path = backup_dir.join(backup_file_name);
@@ -85,6 +86,9 @@ pub fn backup_character(character: &CharacterWithInstall, paste: bool) -> AnyRes
     }
 
     zip.finish()?;
+
+    log::info!("Finished backup to `{}`", backup_file_path.display());
+
     Ok(backup_file_path)
 }
 
@@ -99,7 +103,7 @@ pub fn backup_character_files(
 ) -> AnyResult<PathBuf> {
     let char_path = character.get_character_path();
     let backup_dir = char_path.join(crate::wow::BACKUPS_DIR_NAME);
-    ensure_directory(&backup_dir)?;
+    ensure_directory(&backup_dir, false)?;
 
     let backup_file_name = get_backup_name(character.character, paste);
     let backup_file_path = backup_dir.join(backup_file_name);
@@ -124,6 +128,12 @@ pub fn backup_character_files(
     }
 
     zip.finish()?;
+
+    log::info!(
+        "Finished selective backup to `{}`",
+        backup_file_path.display()
+    );
+
     Ok(backup_file_path)
 }
 
@@ -131,14 +141,22 @@ pub fn backup_character_files(
 /// files.
 /// # Errors
 /// Returns an error if any file operations fail.
+/// # Parameters
+/// - `dest_character`: The destination character to which files will be pasted.
+/// - `src_character`: The source character from which files will be copied.
+/// - `selected_files`: A list of relative file paths to be copied.
+/// - `mock_mode`: If true, no actual file operations will be performed; only logging will occur.
 pub fn paste_character_files(
     dest_character: &CharacterWithInstall,
     src_character: &CharacterWithInstall,
     selected_files: &[PathBuf],
+    mock_mode: bool,
 ) -> AnyResult<usize> {
-    log::info!("Backing up files before paste...");
-    backup_character_files(dest_character, selected_files, true)?;
-    log::info!("Done.");
+    if !mock_mode {
+        log::info!("Backing up files before paste...");
+        backup_character_files(dest_character, selected_files, true)?;
+        log::info!("Done.");
+    }
 
     let dest_char_path = dest_character.get_character_path();
     let src_char_path = src_character.get_character_path();
@@ -149,17 +167,20 @@ pub fn paste_character_files(
         let src_file_path = src_char_path.join(relative_path);
         let dest_file_path = dest_char_path.join(relative_path);
 
-        filesystem::copy(&src_file_path, &dest_file_path)?;
-        files_copied += 1;
+        if !mock_mode {
+            filesystem::copy(&src_file_path, &dest_file_path)?;
+            files_copied += 1;
+        }
 
         log::info!(
-            "Copied `{}` to `{}`",
+            "{}Copied `{}` to `{}`",
+            mock_prefix(mock_mode),
             relative_path.display(),
             dest_file_path.display()
         );
     }
 
-    log::info!("Pasted {files_copied} files.");
+    log::info!("{}Pasted {files_copied} files.", mock_prefix(mock_mode));
 
     Ok(files_copied)
 }
@@ -185,12 +206,16 @@ pub fn extract_backup_name(backup_filestem: &str) -> Option<(String, DateTime<Lo
 /// Restore a backup for the given `WoW` character from the specified backup file path.
 /// # Errors
 /// Returns an error if any file operations fail.
-pub fn restore_backup(character: &CharacterWithInstall, backup_path: &Path) -> AnyResult<usize> {
+pub fn restore_backup(
+    character: &CharacterWithInstall,
+    backup_path: &Path,
+    mock_mode: bool,
+) -> AnyResult<usize> {
     let file = filesystem::File::open(backup_path)?;
     let mut archive = ZipArchive::new(file)?;
 
     let dest_root = character.get_character_path();
-    ensure_directory(&dest_root)?;
+    ensure_directory(&dest_root, mock_mode)?;
 
     let mut files_restored = 0;
 
@@ -204,19 +229,25 @@ pub fn restore_backup(character: &CharacterWithInstall, backup_path: &Path) -> A
         let out_path = dest_root.join(&rel_path);
 
         if entry.name().ends_with('/') {
-            ensure_directory(&out_path)?;
+            ensure_directory(&out_path, mock_mode)?;
             continue;
         }
 
         if let Some(parent) = out_path.parent() {
-            ensure_directory(parent)?;
+            ensure_directory(parent, mock_mode)?;
         }
 
-        let mut outfile = filesystem::File::create(&out_path)?;
-        std::io::copy(&mut entry, &mut outfile)?;
-        files_restored += 1;
+        if !mock_mode {
+            let mut outfile = filesystem::File::create(&out_path)?;
+            std::io::copy(&mut entry, &mut outfile)?;
+            files_restored += 1;
+        }
 
-        log::info!("Restored file `{}`", rel_path.display());
+        log::info!(
+            "{}Restored file `{}`",
+            mock_prefix(mock_mode),
+            rel_path.display()
+        );
     }
 
     Ok(files_restored)

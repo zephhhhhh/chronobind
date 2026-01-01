@@ -81,3 +81,13 @@ pub fn init_tui_logger(max_level: log::LevelFilter) {
         .map(|()| log::set_max_level(max_level))
         .unwrap();
 }
+
+// File system operations logging..
+pub const MOCK_HEADER: &str = "[Mock] ";
+
+/// Returns the mock prefix for logging based on the mock mode.
+#[inline]
+#[must_use]
+pub const fn mock_prefix(mock: bool) -> &'static str {
+    if mock { MOCK_HEADER } else { "" }
+}
