@@ -28,6 +28,7 @@ use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
+use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
 use crate::popups::paste_popup::{PasteConfirmPopup, PastePopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
 use crate::widgets::popup::{Popup, PopupPtr};
@@ -76,6 +77,7 @@ pub enum PopupAppCommand {
     Backup(CharacterIndex, BackupPopupCommand),
     Restore(CharacterIndex, RestorePopupCommand),
     Paste(CharacterIndex, PastePopupCommand),
+    Branch(BranchPopupCommand),
 }
 
 /// Representation of a `WoW` character along with its selected files and
@@ -577,6 +579,9 @@ impl ChronoBindApp {
             KeyCode::F(2) => {
                 self.config.show_friendly_names = !self.config.show_friendly_names;
             }
+            KeyCode::Char('t' | 'T') => {
+                self.show_branch_select_popup();
+            }
             KeyCode::Char('q' | 'Q') => {
                 log::debug!("Quit requested");
                 self.should_exit = true;
@@ -705,6 +710,10 @@ impl ChronoBindApp {
                     perform_character_paste(self, *source_char_idx, *char_idx);
                 }
             },
+            PopupAppCommand::Branch(BranchPopupCommand::SelectBranch(chosen_branch)) => {
+                log::info!("Switching to branch: {chosen_branch}");
+                self.load_branch_characters(chosen_branch);
+            }
         }
     }
 
@@ -838,7 +847,7 @@ impl ChronoBindApp {
 
     /// Render the bottom status bar.
     fn bottom_bar(&self, area: Rect, buf: &mut Buffer) {
-        let suffix_options = ["q: Quit".to_string()];
+        let suffix_options = ["t: WoW Version".to_string(), "q: Quit".to_string()];
         let status_elements = if self.console_widget.is_visible() {
             vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
@@ -889,6 +898,7 @@ impl ChronoBindApp {
         self.open_popup(BackupPopup::new(character, char_idx));
     }
 
+    /// Show the paste confirmation popup for the given character index.
     pub fn show_paste_confirm_popup(&mut self, char_idx: usize, file_count: usize) {
         let Some(character) = self.characters.get(char_idx).cloned() else {
             log::error!("Invalid character index for paste confirm popup: {char_idx}");
@@ -896,6 +906,14 @@ impl ChronoBindApp {
         };
 
         self.open_popup(PasteConfirmPopup::new(character, char_idx, file_count));
+    }
+
+    /// Show the branch selection popup.
+    pub fn show_branch_select_popup(&mut self) {
+        self.open_popup(BranchPopup::new(
+            self.wow_installations.clone(),
+            self.selected_branch.clone(),
+        ));
     }
 }
 

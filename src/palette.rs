@@ -27,7 +27,7 @@ mod colours {
     pub const LOG_TRACE_FG: Color = Color::Rgb(204, 204, 204);
 
     // WoW Class Colours..
-    pub const UNKNOWN_COL: Color = Color::Rgb(130, 130, 130);
+    pub const UNKNOWN_COL: Color = Color::Rgb(225, 225, 225);
     pub const WARRIOR_COL: Color = Color::Rgb(198, 155, 109);
     pub const PALADIN_COL: Color = Color::Rgb(244, 140, 186);
     pub const HUNTER_COL: Color = Color::Rgb(170, 211, 144);
@@ -61,7 +61,7 @@ mod colours {
     pub const LOG_TRACE_FG: Color = Color::Gray;
 
     // WoW Class Colours..
-    pub const UNKNOWN_COL: Color = Color::Indexed(8);
+    pub const UNKNOWN_COL: Color = Color::Indexed(255);
     pub const WARRIOR_COL: Color = Color::Indexed(173);
     pub const PALADIN_COL: Color = Color::Indexed(211);
     pub const HUNTER_COL: Color = Color::Indexed(150);

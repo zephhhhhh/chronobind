@@ -16,17 +16,17 @@ use ratatui::{
     widgets::{Block, Clear, List, ListDirection, ListItem, ListState, StatefulWidget, Widget},
 };
 
-/// Different commands that can be issued from a backup popup.
+/// Different commands that can be issued from a restore popup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RestorePopupCommand {
     /// Command to restore a backup at a specified index.
     RestoreBackup(usize),
 }
 
-/// Popup for backup options for a character.
+/// Popup for restoring a backup for a character.
 #[derive(Debug, Clone)]
 pub struct RestorePopup {
-    /// The character associated with the backup popup.
+    /// The character associated with the restore popup.
     pub character: Character,
     /// The index of the character in the main character list.
     pub character_index: usize,
