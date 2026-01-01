@@ -141,7 +141,7 @@ impl Popup for BranchPopup {
         self.close = true;
     }
     fn popup_identifier(&self) -> &'static str {
-        "backup_popup"
+        "branch_popup"
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         Some(vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"])

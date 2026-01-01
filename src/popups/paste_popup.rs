@@ -155,7 +155,7 @@ impl Popup for PasteConfirmPopup {
         self.close = true;
     }
     fn popup_identifier(&self) -> &'static str {
-        "restore_popup"
+        "paste_popup"
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         Some(vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"])
