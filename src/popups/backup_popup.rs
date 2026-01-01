@@ -123,7 +123,7 @@ impl Popup for BackupPopup {
             .enumerate()
             .map(|(i, item)| {
                 let hovered = i == self.state.selected().unwrap_or(0);
-                let content = dual_highlight_symbol(item, hovered);
+                let content = dual_highlight_str(item, hovered);
                 let line = Line::from(content).centered();
                 ListItem::new(line)
             })

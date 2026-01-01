@@ -119,7 +119,7 @@ impl Popup for PasteConfirmPopup {
         let plural = if self.file_count == 1 { "" } else { "s" };
         let items = [
             {
-                let content = dual_highlight_symbol("Cancel", selected_idx == Self::CANCEL_IDX);
+                let content = dual_highlight_str("Cancel", selected_idx == Self::CANCEL_IDX);
                 let line = Line::from(content).centered();
                 ListItem::new(line)
             },

@@ -118,7 +118,7 @@ impl Popup for BranchPopup {
                 } else {
                     item.display_branch_name()
                 };
-                let line = Line::from(dual_highlight_symbol(content, hovered)).centered();
+                let line = Line::from(dual_highlight_str(content, hovered)).centered();
                 ListItem::new(line)
             })
             .collect::<Vec<ListItem>>();

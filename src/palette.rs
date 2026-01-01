@@ -112,7 +112,14 @@ pub const fn highlight_symbol_rev(highlighted: bool) -> &'static str {
 /// Get text wrapped with highlight symbols if highlighted.
 #[inline]
 #[must_use]
-pub fn dual_highlight_symbol(text: impl AsRef<str>, highlighted: bool) -> String {
+pub fn highlight_str(text: impl AsRef<str>, highlighted: bool) -> String {
+    format!("{}{}", highlight_symbol(highlighted), text.as_ref())
+}
+
+/// Get text wrapped with highlight symbols if highlighted.
+#[inline]
+#[must_use]
+pub fn dual_highlight_str(text: impl AsRef<str>, highlighted: bool) -> String {
     format!(
         "{}{}{}",
         highlight_symbol(highlighted),

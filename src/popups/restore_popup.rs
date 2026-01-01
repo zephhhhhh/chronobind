@@ -126,7 +126,7 @@ impl Popup for RestorePopup {
                     display_backup_time(&backup.timestamp),
                     if backup.is_paste { " (Pasted)" } else { "" }
                 );
-                let line = Line::from(dual_highlight_symbol(content, hovered)).centered();
+                let line = Line::from(dual_highlight_str(content, hovered)).centered();
                 ListItem::new(line)
             })
             .collect_vec();

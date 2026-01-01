@@ -2,6 +2,7 @@
 #![warn(clippy::nursery)]
 
 pub mod backend;
+pub mod config;
 pub mod files;
 pub mod palette;
 pub mod popups;
@@ -27,8 +28,10 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
+use crate::config::ChronoBindAppConfig;
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
+use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
 use crate::popups::paste_popup::{PasteConfirmPopup, PastePopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
 use crate::widgets::popup::{Popup, PopupPtr};
@@ -40,7 +43,11 @@ fn main() -> Result<()> {
     color_eyre::install()?;
 
     // Initialize logging that binds to our TUI..
-    tui_log::init_tui_logger(log::LevelFilter::Debug);
+    tui_log::init_tui_logger(if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    });
 
     let mut app = ChronoBindApp::new();
     let mut terminal = ratatui::init();
@@ -78,6 +85,7 @@ pub enum PopupAppCommand {
     Restore(CharacterIndex, RestorePopupCommand),
     Paste(CharacterIndex, PastePopupCommand),
     Branch(BranchPopupCommand),
+    Options(OptionsPopupCommand),
 }
 
 /// Representation of a `WoW` character along with its selected files and
@@ -279,18 +287,6 @@ impl Character {
     }
 }
 
-/// Application configuration options.
-#[derive(Debug, Default)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct ChronoBindAppConfig {
-    /// Whether to show realm names alongside character names.
-    pub show_realm: bool,
-    /// Whether to show friendly names for files instead of raw filenames.
-    pub show_friendly_names: bool,
-    /// Whether to operate in mock mode (no actual file operations).
-    pub mock_mode: bool,
-}
-
 /// Different input modes for the application.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 enum InputMode {
@@ -350,12 +346,16 @@ impl ChronoBindApp {
             }
         };
 
+        let config = match ChronoBindAppConfig::load_config_or_default() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                log::error!("Failed to load configuration file: {e}");
+                ChronoBindAppConfig::default()
+            }
+        };
+
         let mut app = Self {
-            config: ChronoBindAppConfig {
-                show_realm: false,
-                show_friendly_names: true,
-                mock_mode: true,
-            },
+            config,
             should_exit: false,
 
             selected_branch: None,
@@ -373,7 +373,12 @@ impl ChronoBindApp {
             popup: None,
         };
 
-        app.load_branch_characters(wow::WOW_RETAIL_IDENT);
+        let branch_to_load = app
+            .config
+            .preferred_branch
+            .clone()
+            .unwrap_or_else(|| wow::WOW_RETAIL_IDENT.to_string());
+        app.load_branch_characters(&branch_to_load);
 
         app
     }
@@ -573,7 +578,7 @@ impl ChronoBindApp {
                 }
                 log::debug!("Character list refreshed.");
             }
-            KeyCode::F(1) => {
+            KeyCode::Char('`' | '¬' | '~') => {
                 self.console_widget.toggle_show();
             }
             KeyCode::F(2) => {
@@ -581,6 +586,9 @@ impl ChronoBindApp {
             }
             KeyCode::Char('t' | 'T') => {
                 self.show_branch_select_popup();
+            }
+            KeyCode::Char('o' | 'O') => {
+                self.show_options_popup();
             }
             KeyCode::Char('q' | 'Q') => {
                 log::debug!("Quit requested");
@@ -714,6 +722,13 @@ impl ChronoBindApp {
                 log::info!("Switching to branch: {chosen_branch}");
                 self.load_branch_characters(chosen_branch);
             }
+            PopupAppCommand::Options(OptionsPopupCommand::UpdateConfiguration(new_config)) => {
+                log::info!("Updating application configuration.");
+                self.config = new_config.clone();
+                self.config.save_to_file().unwrap_or_else(|e| {
+                    log::error!("Failed to save configuration file: {e}");
+                });
+            }
         }
     }
 
@@ -816,8 +831,13 @@ impl ChronoBindApp {
             || "No branch selected".to_string(),
             wow::WowInstall::display_branch_name,
         );
+        let mock = if self.config.mock_mode {
+            " [Safe]"
+        } else {
+            Default::default()
+        };
         let line_style = Style::default().fg(Color::White);
-        let title_span = Span::styled(format!(" ChronoBind - {branch_display} "), line_style);
+        let title_span = Span::styled(format!(" ChronoBind - {branch_display}{mock} "), line_style);
 
         let copy_display = if let Some(char_idx) = &self.copied_char
             && let Some(copied_char) = self.characters.get(*char_idx)
@@ -847,7 +867,13 @@ impl ChronoBindApp {
 
     /// Render the bottom status bar.
     fn bottom_bar(&self, area: Rect, buf: &mut Buffer) {
-        let suffix_options = ["t: WoW Version".to_string(), "q: Quit".to_string()];
+        const BOTTOM_BAR_SEP: &str = " | ";
+
+        let suffix_options = [
+            "t: WoW Version".to_string(),
+            "o: Options".to_string(),
+            "q: Quit".to_string(),
+        ];
         let status_elements = if self.console_widget.is_visible() {
             vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
@@ -875,11 +901,18 @@ impl ChronoBindApp {
 
         let line_style = Style::default().bg(Color::White).fg(Color::Black);
 
-        let final_text = status_elements
-            .iter()
-            .map(std::string::ToString::to_string)
-            .chain(suffix_options)
-            .join(" | ");
+        let final_text = if self.input_mode == InputMode::Popup {
+            status_elements
+                .iter()
+                .map(std::string::ToString::to_string)
+                .join(" | ")
+        } else {
+            status_elements
+                .iter()
+                .map(std::string::ToString::to_string)
+                .chain(suffix_options)
+                .join(BOTTOM_BAR_SEP)
+        };
 
         let status_line = Line::from(Span::styled(final_text, Style::default())).style(line_style);
         status_line.render(area, buf);
@@ -914,6 +947,11 @@ impl ChronoBindApp {
             self.wow_installations.clone(),
             self.selected_branch.clone(),
         ));
+    }
+
+    /// Show the options popup.
+    pub fn show_options_popup(&mut self) {
+        self.open_popup(OptionsPopup::new(self.config.clone()));
     }
 }
 
