@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use const_format::concatcp;
 use itertools::Itertools;
 use prost::Message;
+use ratatui::style::Color;
 
 mod productdb {
     include!(concat!(env!("OUT_DIR"), "/productdb.rs"));
@@ -131,7 +132,7 @@ const USER_DIR: &str = "WTF";
 /// Name of the account directory within the `WoW` user settings.
 const ACCOUNT_DIR: &str = "Account";
 /// Name of the `SavedVariables` directory within the `WoW` user settings.
-const SAVED_VARIABLES: &str = "SavedVariables";
+pub const SAVED_VARIABLES: &str = "SavedVariables";
 
 /// Check if a directory name is a valid `WoW` account directory name within the `WTF/Account` path.
 #[inline]
@@ -249,7 +250,8 @@ impl WowInstall {
                                 name: char_name,
                                 realm: realm_name.clone(),
                                 class: Class::Unknown,
-                                files: vec![],
+                                config_files: vec![],
+                                addon_files: vec![],
                             })
                             .collect::<Vec<WowCharacter>>()
                     },
@@ -299,6 +301,16 @@ impl WowCharacterFile {
         self.name.clone()
     }
 
+    /// Returns file display stem, using friendly name if available and requested.
+    #[inline]
+    #[must_use]
+    pub fn display_stem(&self, friendly: bool) -> String {
+        if friendly && let Some(ref friendly_name) = self.friendly_name {
+            return friendly_name.clone();
+        }
+        self.stem.clone()
+    }
+
     /// Returns true if the file has a friendly name associated with it.
     #[inline]
     #[must_use]
@@ -315,7 +327,8 @@ pub struct WowCharacter {
     pub name: String,
     pub realm: String,
     pub class: Class,
-    pub files: Vec<WowCharacterFile>,
+    pub config_files: Vec<WowCharacterFile>,
+    pub addon_files: Vec<WowCharacterFile>,
 }
 
 /// Extensions for old (backup) config files.
@@ -332,6 +345,9 @@ const FRIENDLY_NAMES: &[(&str, &str)] = &[
     ("edit-mode-cache-character.txt", "UI Layout"),
     ("AddOns.txt", "Enabled Addons"),
 ];
+
+/// Name of the backups directory within a character's folder.
+pub const BACKUPS_DIR_NAME: &str = "Backups";
 
 /// Get a friendly name for a given filename, if available.
 #[inline]
@@ -353,20 +369,94 @@ impl WowCharacter {
             .join(&self.name)
     }
 
-    /// Maps all files in the character's directory to the `files` field.
+    /// Returns the path to the character's backups directory.
+    #[inline]
+    #[must_use]
+    pub fn get_backups_dir(&self, install: &WowInstall) -> PathBuf {
+        self.get_character_path(install).join(BACKUPS_DIR_NAME)
+    }
+
+    /// Maps all files in the character's directory and addon directory.
     /// Also populates the character class information if possible.
     #[inline]
     pub fn map_character_files(&mut self, install: &WowInstall) {
         let char_path = self.get_character_path(install);
-
         if !char_path.is_dir() || !char_path.exists() {
             return;
         }
-        let Ok(files) = std::fs::read_dir(&char_path) else {
+
+        if !self.map_config_files(&char_path) {
+            log::warn!(
+                "Could not read files for character {} on realm {} (account: {})",
+                self.name,
+                self.realm,
+                self.account
+            );
             return;
+        }
+
+        if !self.map_addon_files(&char_path) {
+            log::warn!(
+                "Could not read addon files for character {} on realm {} (account: {})",
+                self.name,
+                self.realm,
+                self.account
+            );
+        }
+
+        if !self.try_to_load_class() {
+            log::warn!(
+                "Could not determine class for character {} on realm {} (account: {})",
+                self.name,
+                self.realm,
+                self.account
+            );
+        }
+    }
+
+    /// Maps all `WoW` character files in the character's directory.
+    fn map_config_files(&mut self, char_path: &Path) -> bool {
+        let Ok(files) = std::fs::read_dir(char_path) else {
+            return false;
         };
 
-        self.files = files
+        self.config_files = files
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().ok().is_some_and(|ft| ft.is_file()))
+            .filter_map(|entry| {
+                let path = entry.path();
+                let extension = path.extension()?.to_str()?.to_string();
+                if BACKUP_EXTENSIONS.contains(&extension.to_lowercase().as_str()) {
+                    return None;
+                }
+
+                let name = path.file_name()?.to_str()?.to_string();
+                let stem = path.file_stem()?.to_str()?.to_string();
+
+                Some(WowCharacterFile {
+                    name,
+                    stem,
+                    path,
+                    friendly_name: get_friendly_name(&entry.file_name().to_string_lossy()),
+                })
+            })
+            .sorted_by(|af, bf| bf.has_friendly_name().cmp(&af.has_friendly_name()))
+            .collect();
+
+        true
+    }
+
+    /// Maps all `WoW` addon files in the character's `SavedVariables` directory.
+    fn map_addon_files(&mut self, char_path: &Path) -> bool {
+        let saved_variables_path = char_path.join(SAVED_VARIABLES);
+        if !saved_variables_path.is_dir() || !saved_variables_path.exists() {
+            return false;
+        }
+        let Ok(files) = std::fs::read_dir(&saved_variables_path) else {
+            return false;
+        };
+
+        self.addon_files = files
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().ok().is_some_and(|ft| ft.is_file()))
             .filter_map(|entry| {
@@ -389,7 +479,14 @@ impl WowCharacter {
             .sorted_by(|af, bf| bf.has_friendly_name().cmp(&af.has_friendly_name()))
             .collect();
 
-        self.files
+        true
+    }
+
+    /// Attempts to load the character class from the config file.
+    #[inline]
+    fn try_to_load_class(&mut self) -> bool {
+        let load_result = self
+            .config_files
             .iter()
             .find(|f| f.get_full_filename().to_lowercase() == CONFIG_WTF)
             .and_then(|config_file| {
@@ -401,9 +498,12 @@ impl WowCharacter {
                 if parts.len() >= 3 {
                     let id = parts[2].trim_matches(|c| c == '\"').parse::<u8>().ok()?;
                     self.class = Class::from_id(id);
+                    Some(())
+                } else {
+                    None
                 }
-                Some(())
             });
+        load_result.is_some()
     }
 }
 
@@ -502,22 +602,22 @@ impl Class {
     /// Returns the RGB colour associated with the class.
     #[inline]
     #[must_use]
-    pub const fn class_colour(&self) -> (u8, u8, u8) {
+    pub const fn class_colour(&self) -> Color {
         match self {
-            Self::Unknown => (130, 130, 130),
-            Self::Warrior => (198, 155, 109),
-            Self::Paladin => (244, 140, 186),
-            Self::Hunter => (170, 211, 144),
-            Self::Rogue => (255, 244, 104),
-            Self::Priest => (255, 255, 255),
-            Self::DeathKnight => (196, 30, 58),
-            Self::Shaman => (0, 112, 221),
-            Self::Mage => (63, 199, 235),
-            Self::Warlock => (135, 136, 238),
-            Self::Monk => (0, 255, 152),
-            Self::Druid => (255, 124, 10),
-            Self::DemonHunter => (163, 48, 201),
-            Self::Evoker => (51, 147, 127),
+            Self::Unknown => crate::palette::UNKNOWN_COL,
+            Self::Warrior => crate::palette::WARRIOR_COL,
+            Self::Paladin => crate::palette::PALADIN_COL,
+            Self::Hunter => crate::palette::HUNTER_COL,
+            Self::Rogue => crate::palette::ROGUE_COL,
+            Self::Priest => crate::palette::PRIEST_COL,
+            Self::DeathKnight => crate::palette::DEATHKNIGHT_COL,
+            Self::Shaman => crate::palette::SHAMAN_COL,
+            Self::Mage => crate::palette::MAGE_COL,
+            Self::Warlock => crate::palette::WARLOCK_COL,
+            Self::Monk => crate::palette::MONK_COL,
+            Self::Druid => crate::palette::DRUID_COL,
+            Self::DemonHunter => crate::palette::DEMONHUNTER_COL,
+            Self::Evoker => crate::palette::EVOKER_COL,
         }
     }
 }
