@@ -562,7 +562,7 @@ impl ChronoBindApp {
     /// Handle key down events.
     fn on_key_down(&mut self, key: &KeyEvent) {
         match key.code {
-            KeyCode::Char('r') => {
+            KeyCode::Char('r' | 'R') => {
                 log::debug!("Refreshing character list..");
                 if let Some(branch) = self.selected_branch.clone() {
                     self.load_branch_characters(&branch);
@@ -577,7 +577,7 @@ impl ChronoBindApp {
             KeyCode::F(2) => {
                 self.config.show_friendly_names = !self.config.show_friendly_names;
             }
-            KeyCode::Char('q') => {
+            KeyCode::Char('q' | 'Q') => {
                 log::debug!("Quit requested");
                 self.should_exit = true;
             }

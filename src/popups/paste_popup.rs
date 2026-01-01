@@ -81,11 +81,11 @@ impl PasteConfirmPopup {
 impl Popup for PasteConfirmPopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
         match key.code {
-            KeyCode::Up | KeyCode::Char('w') => {
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
                 self.state
                     .select(self.state.selected().map(|i| i.saturating_sub(1)));
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
                 self.state
                     .select(self.state.selected().map(|i| i.saturating_add(1)));
             }
@@ -98,7 +98,7 @@ impl Popup for PasteConfirmPopup {
                     }
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q') => {
+            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
                 self.close = true;
             }
             _ => {}

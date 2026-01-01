@@ -104,13 +104,13 @@ impl CharacterListWidget {
         }
 
         match key.code {
-            KeyCode::Up | KeyCode::Char('w') => {
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
                 if let Some(selected) = self.state.selected() {
                     self.state.select(Some(selected.saturating_sub(1)));
                 }
                 NavigationAction::None
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
                 if let Some(selected) = self.state.selected() {
                     self.state.select(Some(selected.saturating_add(1)));
                 }
@@ -136,7 +136,7 @@ impl CharacterListWidget {
                     NavigationAction::None
                 }
             }
-            KeyCode::Char('d') | KeyCode::Right => {
+            KeyCode::Char('d' | 'D') | KeyCode::Right => {
                 if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
                     && !*is_header
                 {
@@ -146,7 +146,7 @@ impl CharacterListWidget {
                     NavigationAction::None
                 }
             }
-            KeyCode::Char('b') => {
+            KeyCode::Char('b' | 'B') => {
                 if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
                     && !*is_header
                     && let Some(char_idx) = self.get_selected_character_index(characters)
@@ -156,12 +156,12 @@ impl CharacterListWidget {
                     NavigationAction::None
                 }
             }
-            KeyCode::Char('c') => self
+            KeyCode::Char('c' | 'C') => self
                 .get_selected_character_index(characters)
                 .map_or(NavigationAction::None, |char_idx| {
                     NavigationAction::Copy(char_idx)
                 }),
-            KeyCode::Char('v') => self
+            KeyCode::Char('v' | 'V') => self
                 .get_selected_character_index(characters)
                 .map_or(NavigationAction::None, |target_char_idx| {
                     NavigationAction::Paste(target_char_idx)

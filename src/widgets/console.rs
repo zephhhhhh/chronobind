@@ -49,10 +49,10 @@ impl ConsoleWidget {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let speed_multiplier = if ctrl { 3 } else { 1 };
         match key.code {
-            KeyCode::Up | KeyCode::Char('w') => {
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
                 self.scroll_offset = self.scroll_offset.saturating_add(speed_multiplier);
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(speed_multiplier);
             }
             KeyCode::PageUp => {

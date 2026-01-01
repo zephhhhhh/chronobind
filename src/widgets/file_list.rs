@@ -87,21 +87,21 @@ impl FileListWidget {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
         match key.code {
-            KeyCode::Char('a') if !ctrl => FileSelectionAction::ExitFileSelection,
+            KeyCode::Char('a' | 'A') if !ctrl => FileSelectionAction::ExitFileSelection,
             KeyCode::Esc | KeyCode::Left => FileSelectionAction::ExitFileSelection,
-            KeyCode::Up | KeyCode::Char('w') => {
+            KeyCode::Up | KeyCode::Char('w' | 'W') => {
                 if let Some(sel_index) = self.state.selected() {
                     self.state.select(Some(sel_index.saturating_sub(1)));
                 }
                 FileSelectionAction::None
             }
-            KeyCode::Down | KeyCode::Char('s') => {
+            KeyCode::Down | KeyCode::Char('s' | 'S') => {
                 if let Some(sel_index) = self.state.selected() {
                     self.state.select(Some(sel_index + 1));
                 }
                 FileSelectionAction::None
             }
-            KeyCode::Char(' ' | 'd') | KeyCode::Enter | KeyCode::Right => {
+            KeyCode::Char(' ' | 'd' | 'D') | KeyCode::Enter | KeyCode::Right => {
                 let Some(selected_index) = self.state.selected() else {
                     return FileSelectionAction::None;
                 };
@@ -134,7 +134,7 @@ impl FileListWidget {
                 }
                 FileSelectionAction::None
             }
-            KeyCode::Char('a') if ctrl => {
+            KeyCode::Char('a' | 'A') if ctrl => {
                 let all_selected =
                     character.all_config_files_selected() && character.all_addon_files_selected();
                 character.set_all_selected(!all_selected);
@@ -148,8 +148,8 @@ impl FileListWidget {
                 );
                 FileSelectionAction::None
             }
-            KeyCode::Char('b') => FileSelectionAction::ShowBackup,
-            KeyCode::Char('c') => FileSelectionAction::Copy,
+            KeyCode::Char('b' | 'B') => FileSelectionAction::ShowBackup,
+            KeyCode::Char('c' | 'C') => FileSelectionAction::Copy,
             _ => FileSelectionAction::None,
         }
     }
