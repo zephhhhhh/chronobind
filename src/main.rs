@@ -2,6 +2,7 @@
 #![warn(clippy::nursery)]
 
 pub mod backend;
+pub mod files;
 pub mod palette;
 pub mod tui_log;
 pub mod widgets;
@@ -75,7 +76,7 @@ pub struct ChronoBindApp {
     file_list_state: ListState,
     character_list_state: ListState,
     popup: Option<PopupState>,
-    copied_files: Option<(usize, Vec<PathBuf>)>,
+    copied_char: Option<usize>,
 }
 
 pub enum PopupKind {
@@ -89,7 +90,7 @@ pub struct PopupInfo {
 
 #[derive(Debug, Clone)]
 #[allow(clippy::struct_field_names)]
-struct Character {
+pub struct Character {
     pub character: WowCharacter,
     selected_config_files: Vec<bool>,
     selected_addon_files: Vec<bool>,
@@ -97,6 +98,7 @@ struct Character {
 }
 
 impl Character {
+    #[must_use]
     pub fn new(character: &WowCharacter) -> Self {
         let config_file_count = character.config_files.len();
         let addon_file_count = character.addon_files.len();
@@ -186,17 +188,21 @@ impl Character {
 
     /// Check if any config files are selected.
     #[inline]
+    #[must_use]
     pub fn any_config_file_selected(&self) -> bool {
         self.selected_config_files.iter().any(|&s| s)
     }
 
     /// Check if any addon file is selected.
     #[inline]
+    #[must_use]
     pub fn any_addon_file_selected(&self) -> bool {
         self.selected_addon_files.iter().any(|&s| s)
     }
 
     /// Check if any files (regular or addon) are selected.
+    #[inline]
+    #[must_use]
     pub fn any_file_selected(&self) -> bool {
         self.any_config_file_selected() || self.any_addon_file_selected()
     }
@@ -234,6 +240,7 @@ impl Character {
     }
 
     /// Get all selected files from both config files and addon files.
+    #[must_use]
     pub fn get_all_selected_files(&self) -> Vec<PathBuf> {
         let mut selected_paths = Vec::new();
 
@@ -311,7 +318,7 @@ impl ChronoBindApp {
                 show_output: false,
                 show_friendly_names: true,
             },
-            copied_files: None,
+            copied_char: None,
         };
 
         app.refresh_characters();
@@ -362,11 +369,50 @@ impl ChronoBindApp {
             if selected_files.is_empty() {
                 return true;
             }
-            self.copied_files = Some((char_idx, selected_files));
+            self.copied_char = Some(char_idx);
             true
         } else {
             false
         }
+    }
+
+    /// Get the character with its associated install for the character at the given index.
+    #[inline]
+    #[must_use]
+    pub fn character_with_install(&self, index: usize) -> Option<(&Character, &wow::WowInstall)> {
+        let character = self.characters.get(index)?;
+        let install = self.find_wow_branch(&character.character.branch)?;
+        Some((character, install))
+    }
+
+    /// Get the `WoW` installation for the character at the given index.
+    #[inline]
+    #[must_use]
+    pub fn get_wow_branch_for_character(&self, index: usize) -> Option<&wow::WowInstall> {
+        let character = self.characters.get(index)?;
+        self.find_wow_branch(&character.character.branch)
+    }
+
+    /// Refresh the backups for the character at the given index.
+    pub fn refresh_character_backups(&mut self, index: usize) -> bool {
+        let Some(install) = self.get_wow_branch_for_character(index).cloned() else {
+            return false;
+        };
+        let Some(character) = self.characters.get_mut(index) else {
+            return false;
+        };
+        character.character.refresh_backups(&install)
+    }
+
+    /// Refresh the backups for the character at the given index.
+    pub fn refresh_character(&mut self, index: usize) -> bool {
+        let Some(install) = self.get_wow_branch_for_character(index).cloned() else {
+            return false;
+        };
+        let Some(character) = self.characters.get_mut(index) else {
+            return false;
+        };
+        character.character.refresh_character_info(&install)
     }
 }
 
@@ -384,14 +430,65 @@ impl ChronoBindApp {
             return;
         }
         let popup = PopupState::new(
-            "Backup Options",
+            " Backup Options ",
             vec![
-                "Backup Selected Files".to_string(),
-                "Backup All Files".to_string(),
+                "Backup selected files".to_string(),
+                "Backup all files".to_string(),
+                "Restore from backup".to_string(),
             ],
             Box::new(handle_character_backup_popup),
         )
         .with_context(char_idx);
+        self.open_popup(popup);
+    }
+
+    /// Show the restore from backup popup for the given character index.
+    pub fn show_restore_popup(&mut self, char_idx: usize) {
+        self.refresh_character_backups(char_idx);
+        let Some(character) = self.characters.get(char_idx) else {
+            log::error!("Invalid character index for restore popup: {char_idx}");
+            return;
+        };
+        let items = character
+            .character
+            .backups
+            .iter()
+            .map(|backup| {
+                format!(
+                    "{} {}{}",
+                    backup.char_name,
+                    display_backup_time(&backup.timestamp),
+                    if backup.is_paste { " (Pasted)" } else { "" }
+                )
+            })
+            .collect_vec();
+        let popup = PopupState::new(
+            format!(" Restore {} ", self.characters[char_idx].display_name(true)),
+            items,
+            Box::new(handle_character_restore_popup),
+        )
+        .with_context(char_idx);
+        self.open_popup(popup);
+    }
+
+    pub fn show_paste_confirm_popup(&mut self, char_idx: usize, file_count: usize) {
+        let title = " Are you sure? ";
+        let plural = if file_count == 1 { "" } else { "s" };
+        let Some(character) = self.characters.get(char_idx) else {
+            log::error!("Invalid character index for paste confirm popup: {char_idx}");
+            return;
+        };
+        let items = vec![
+            format!(
+                "Paste {} file{} to {}",
+                file_count,
+                plural,
+                character.display_name(true)
+            ),
+            "Cancel".to_string(),
+        ];
+        let popup = PopupState::new(title, items, Box::new(handle_paste_confirm_popup))
+            .with_context(char_idx);
         self.open_popup(popup);
     }
 
@@ -597,6 +694,21 @@ impl ChronoBindApp {
                     log::error!("Failed to copy files from character!");
                 }
             }
+            KeyCode::Char('v') => {
+                if let Some(char_idx) = &self.copied_char
+                    && let Some(target_char_idx) = self.get_selected_character_index()
+                {
+                    if *char_idx == target_char_idx {
+                        log::warn!(
+                            "Cannot paste files onto the same character they were copied from"
+                        );
+                    } else {
+                        let files_to_paste =
+                            self.characters[*char_idx].get_all_selected_files().len();
+                        self.show_paste_confirm_popup(target_char_idx, files_to_paste);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -726,10 +838,6 @@ impl ChronoBindApp {
             self.input_mode = InputMode::Navigation;
             self.popup = None;
         }
-
-        // Close popup after selection
-        self.input_mode = InputMode::Navigation;
-        self.popup = None;
     }
 
     fn on_event(&mut self, ev: &Event) {
@@ -1149,13 +1257,20 @@ impl ChronoBindApp {
             vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
             match self.input_mode {
-                InputMode::Navigation => vec!["↑/↓: Nav", "↵/→/Space: Select", "b: Backup"],
+                InputMode::Navigation => {
+                    let mut items = vec!["↑/↓: Nav", "↵/→/Space: Select", "b: Backup", "c: Copy"];
+                    if self.copied_char.is_some() {
+                        items.push("v: Paste");
+                    }
+                    items
+                }
                 InputMode::FileSelection => vec![
                     "↑/↓: Nav",
+                    "←: Back",
                     "Space/↵/→: Toggle",
                     "Ctrl+A: Select All",
-                    "←: Back",
                     "b: Backup",
+                    "c: Copy",
                 ],
                 InputMode::Popup => vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"],
             }
@@ -1169,7 +1284,7 @@ impl ChronoBindApp {
             .chain(suffix_options)
             .join(" | ");
 
-        let right_line = if let Some((char_idx, _)) = &self.copied_files
+        let right_line = if let Some(char_idx) = &self.copied_char
             && let Some(copied_char) = self.characters.get(*char_idx)
         {
             let char_text = copied_char.display_name(true);
@@ -1177,7 +1292,8 @@ impl ChronoBindApp {
                 Span::from(" Copying: "),
                 Span::from(char_text)
                     .style(Style::default().fg(copied_char.character.class.class_colour())),
-            ]).style(Style::default().bg(Color::Black).fg(Color::White))
+            ])
+            .style(Style::default().bg(Color::Black).fg(Color::White))
         } else {
             Line::from("")
         };
@@ -1213,36 +1329,42 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
     area
 }
 
+impl<'a> From<(&'a Character, &'a wow::WowInstall)> for backend::CharacterWithInstall<'a> {
+    fn from(val: (&'a Character, &'a wow::WowInstall)) -> Self {
+        backend::CharacterWithInstall {
+            character: &val.0.character,
+            install: val.1,
+        }
+    }
+}
+
 fn handle_character_backup_popup(
     app: &mut ChronoBindApp,
     selected_index: usize,
     option: &str,
     char_idx: usize,
 ) -> bool {
-    let Some(character) = app.characters.get(char_idx) else {
+    let Some(character) = app.character_with_install(char_idx) else {
         log::error!("Invalid character index for backup popup: {char_idx}");
-        return true;
-    };
-
-    let Some(branch_install) = app.find_wow_branch(&character.character.branch) else {
-        log::error!(
-            "Failed to find WoW installation for branch '{}' during backup",
-            character.character.branch
-        );
         return true;
     };
 
     log::info!(
         "Selected backup option: {option} for character {} on branch {}",
-        character.name(),
-        branch_install.branch_ident
+        character.0.name(),
+        character.1.branch_ident
     );
 
+    if selected_index == 2 {
+        app.show_restore_popup(char_idx);
+        return false;
+    }
+
     let backup_result = if selected_index == 0 {
-        let selected_files = character.get_all_selected_files();
-        backend::backup_character_files(&character.character, &selected_files, branch_install)
+        let selected_files = character.0.get_all_selected_files();
+        backend::backup_character_files(&character.into(), &selected_files, false)
     } else if selected_index == 1 {
-        backend::backup_character(&character.character, branch_install)
+        backend::backup_character(&character.into(), false)
     } else {
         log::error!("Invalid backup option selected: {selected_index}");
         return true; // Close popup on error
@@ -1252,14 +1374,125 @@ fn handle_character_backup_popup(
         Ok(backup_path) => {
             log::info!(
                 "Backup completed successfully for character {}. Backup file created at: {}",
-                character.name(),
+                character.0.name(),
                 backup_path.display()
             );
         }
         Err(e) => {
-            log::error!("Backup failed for character {}: {}", character.name(), e);
+            log::error!("Backup failed for character {}: {}", character.0.name(), e);
         }
     }
 
     true
+}
+
+fn handle_character_restore_popup(
+    app: &mut ChronoBindApp,
+    selected_index: usize,
+    option: &str,
+    char_idx: usize,
+) -> bool {
+    let Some(character) = app.character_with_install(char_idx) else {
+        log::error!("Invalid character index for backup popup: {char_idx}");
+        return true;
+    };
+
+    log::info!(
+        "Selected restore option: {option} for character {} on branch {}",
+        character.0.name(),
+        character.1.branch_ident
+    );
+
+    let Some(backup) = character.0.character.backups.get(selected_index).cloned() else {
+        log::error!(
+            "Invalid backup selection index: {selected_index} for character {}",
+            character.0.name()
+        );
+        return true;
+    };
+
+    match backend::restore_backup(&character.into(), &backup.path) {
+        Ok(files_restored) => {
+            log::info!(
+                "Restore completed successfully for character {}. {} files restored from backup '{}'.",
+                character.0.name(),
+                files_restored,
+                backup.formatted_timestamp()
+            );
+        }
+        Err(e) => {
+            log::error!(
+                "Restore failed for character {} from backup '{}': {}",
+                character.0.name(),
+                backup.formatted_timestamp(),
+                e
+            );
+        }
+    }
+
+    true
+}
+
+fn handle_paste_confirm_popup(
+    app: &mut ChronoBindApp,
+    selected_index: usize,
+    _option: &str,
+    char_idx: usize,
+) -> bool {
+    let Some(dest_character) = app.character_with_install(char_idx) else {
+        log::error!("Invalid character index for paste popup: {char_idx}");
+        return true;
+    };
+    let Some(source_char_idx) = &app.copied_char else {
+        log::error!("No character found for paste operation!");
+        return true;
+    };
+    let Some(source_character) = app.character_with_install(*source_char_idx) else {
+        log::error!("Invalid source character index for paste operation: {source_char_idx}");
+        return true;
+    };
+
+    if selected_index == 0 {
+        let files_to_paste = source_character.0.get_all_selected_files();
+
+        match backend::paste_character_files(
+            &dest_character.into(),
+            &source_character.into(),
+            &files_to_paste,
+        ) {
+            Ok(pasted_files) => {
+                if pasted_files == files_to_paste.len() {
+                    log::info!(
+                        "Paste operation completed successfully for character {}. {} files pasted.",
+                        dest_character.0.name(),
+                        pasted_files
+                    );
+                } else {
+                    log::warn!(
+                        "Paste operation completed with partial success for character {}. {}/{} files pasted.",
+                        dest_character.0.name(),
+                        pasted_files,
+                        files_to_paste.len()
+                    );
+                }
+                app.refresh_character(char_idx);
+            }
+            Err(e) => {
+                log::error!(
+                    "Paste operation failed for character {} from {}: {}",
+                    dest_character.0.name(),
+                    source_character.0.name(),
+                    e
+                );
+            }
+        }
+    }
+
+    true
+}
+
+/// Format a `DateTime<Local>` for display in the UI.
+#[must_use]
+pub fn display_backup_time(dt: &chrono::DateTime<chrono::Local>) -> String {
+    dt.format(backend::DISPLAY_TIME_FORMAT).to_string()
 }

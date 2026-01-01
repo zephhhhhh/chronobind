@@ -1,9 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Local};
 use const_format::concatcp;
 use itertools::Itertools;
 use prost::Message;
 use ratatui::style::Color;
+
+use crate::files::read_folders_to_string;
 
 mod productdb {
     include!(concat!(env!("OUT_DIR"), "/productdb.rs"));
@@ -140,22 +143,6 @@ fn is_account_dir(dir_name: &str) -> bool {
     dir_name != SAVED_VARIABLES && dir_name.chars().all(|c| c.is_numeric() || c == '#')
 }
 
-/// Reads a directory and returns an iterator over all folders within it.
-fn read_folders(
-    dir: impl AsRef<Path>,
-) -> Result<impl Iterator<Item = std::fs::DirEntry>, Box<dyn std::error::Error>> {
-    Ok(std::fs::read_dir(dir.as_ref())?
-        .filter_map(Result::ok)
-        .filter(|d| d.file_type().ok().is_some_and(|ft| ft.is_dir())))
-}
-
-/// Reads all folders in the given path and returns their names as a vector of strings.
-fn read_folders_to_string(
-    dir: impl AsRef<Path>,
-) -> Result<impl Iterator<Item = String>, Box<dyn std::error::Error>> {
-    Ok(read_folders(dir)?.filter_map(|d| Some(d.file_name().to_str()?.to_string())))
-}
-
 /// Finds all valid `WoW` account directories (not characters) in the given installation.
 fn find_accounts_in_install(
     install: &WowInstall,
@@ -252,6 +239,7 @@ impl WowInstall {
                                 class: Class::Unknown,
                                 config_files: vec![],
                                 addon_files: vec![],
+                                backups: vec![],
                             })
                             .collect::<Vec<WowCharacter>>()
                     },
@@ -268,7 +256,7 @@ impl WowInstall {
     pub fn find_all_characters_and_files(&self) -> Option<Vec<WowCharacter>> {
         let mut chars = self.find_all_characters()?;
         for c in &mut chars {
-            c.map_character_files(self);
+            c.refresh_character_info(self);
         }
         Some(chars)
     }
@@ -277,9 +265,13 @@ impl WowInstall {
 /// Represents a file associated with a World of Warcraft character.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WowCharacterFile {
+    /// The full name of the character file, including its extension.
     pub name: String,
+    /// The stem (filename without extension) of the character file.
     pub stem: String,
+    /// The full path to the character file.
     pub path: PathBuf,
+    /// An optional friendly name for the character file.
     pub friendly_name: Option<String>,
 }
 
@@ -319,16 +311,48 @@ impl WowCharacterFile {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WowBackup {
+    /// The full path to the backup file.
+    pub path: PathBuf,
+    /// The name of the character associated with the backup.
+    pub char_name: String,
+    /// The timestamp of when the backup was created.
+    pub timestamp: DateTime<Local>,
+    /// Indicates whether the backup was created during a paste operation.
+    pub is_paste: bool,
+}
+
+impl WowBackup {
+    /// Returns a formatted string representation of the backup's timestamp.
+    #[inline]
+    #[must_use]
+    pub fn formatted_timestamp(&self) -> String {
+        self.timestamp
+            .format(crate::backend::DISPLAY_TIME_FORMAT)
+            .to_string()
+    }
+}
+
 /// Represents a World of Warcraft character.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WowCharacter {
+    /// The account name associated with the character.
     pub account: String,
+    /// The branch identifier of the `WoW` installation the character belongs to.
     pub branch: String,
+    /// The name of the character.
     pub name: String,
+    /// The realm the character belongs to.
     pub realm: String,
+    /// The class of the character.
     pub class: Class,
+    /// Files associated with the character's configuration.
     pub config_files: Vec<WowCharacterFile>,
+    /// Files associated with the character's addons.
     pub addon_files: Vec<WowCharacterFile>,
+    /// Backups associated with the character.
+    pub backups: Vec<WowBackup>,
 }
 
 /// Extensions for old (backup) config files.
@@ -379,10 +403,23 @@ impl WowCharacter {
     /// Maps all files in the character's directory and addon directory.
     /// Also populates the character class information if possible.
     #[inline]
-    pub fn map_character_files(&mut self, install: &WowInstall) {
+    #[allow(clippy::useless_let_if_seq)]
+    pub fn refresh_character_info(&mut self, install: &WowInstall) -> bool {
         let char_path = self.get_character_path(install);
         if !char_path.is_dir() || !char_path.exists() {
-            return;
+            return false;
+        }
+
+        let mut success = true;
+
+        if !self.refresh_backups(install) {
+            log::warn!(
+                "Could not read backups for character {} on realm {} (account: {})",
+                self.name,
+                self.realm,
+                self.account
+            );
+            success = false;
         }
 
         if !self.map_config_files(&char_path) {
@@ -392,7 +429,7 @@ impl WowCharacter {
                 self.realm,
                 self.account
             );
-            return;
+            success = false;
         }
 
         if !self.map_addon_files(&char_path) {
@@ -402,6 +439,7 @@ impl WowCharacter {
                 self.realm,
                 self.account
             );
+            success = false;
         }
 
         if !self.try_to_load_class() {
@@ -411,11 +449,16 @@ impl WowCharacter {
                 self.realm,
                 self.account
             );
+            success = false;
         }
+
+        success
     }
 
     /// Maps all `WoW` character files in the character's directory.
     fn map_config_files(&mut self, char_path: &Path) -> bool {
+        self.config_files = Vec::new();
+
         let Ok(files) = std::fs::read_dir(char_path) else {
             return false;
         };
@@ -448,6 +491,8 @@ impl WowCharacter {
 
     /// Maps all `WoW` addon files in the character's `SavedVariables` directory.
     fn map_addon_files(&mut self, char_path: &Path) -> bool {
+        self.addon_files = Vec::new();
+
         let saved_variables_path = char_path.join(SAVED_VARIABLES);
         if !saved_variables_path.is_dir() || !saved_variables_path.exists() {
             return false;
@@ -477,6 +522,44 @@ impl WowCharacter {
                 })
             })
             .sorted_by(|af, bf| bf.has_friendly_name().cmp(&af.has_friendly_name()))
+            .collect();
+
+        true
+    }
+
+    /// Refresh the list of backups for this character.
+    pub fn refresh_backups(&mut self, install: &WowInstall) -> bool {
+        self.backups = Vec::new();
+
+        let backups_dir = self.get_backups_dir(install);
+        if !backups_dir.is_dir() || !backups_dir.exists() {
+            return false;
+        }
+        let Ok(files) = crate::files::read_files(&backups_dir) else {
+            return false;
+        };
+
+        self.backups = files
+            .map(|entry| entry.path())
+            .filter(|p| {
+                p.extension()
+                    .is_some_and(|txt| txt.to_str().is_some_and(|txt| txt == "zip"))
+            })
+            .filter_map(|p| Some((p.clone(), p.file_stem()?.to_str()?.to_string())))
+            .filter_map(|(p, stem)| {
+                let (char_name, timestamp, is_paste) = crate::backend::extract_backup_name(&stem)?;
+                Some(WowBackup {
+                    char_name,
+                    timestamp,
+                    is_paste,
+                    path: p,
+                })
+            })
+            .sorted_by(|a, b| {
+                b.timestamp
+                    .partial_cmp(&a.timestamp)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .collect();
 
         true
