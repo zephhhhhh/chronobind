@@ -33,7 +33,7 @@ pub fn with_optional_scrollbar<T: StatefulWidget>(
     offset: usize,
 ) {
     StatefulWidget::render(widget, area, buf, state);
-    if content_length > 0 {
+    if content_length > 1 {
         let mut scrollbar_state = ScrollbarState::new(content_length).position(offset);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some(SCROLL_UP_ICON))
