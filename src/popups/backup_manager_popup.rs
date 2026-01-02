@@ -3,7 +3,7 @@ use crate::palette::*;
 use crate::{
     CharacterWithIndex,
     popups::list_with_scrollbar,
-    widgets::popup::{Popup, PopupCommand},
+    widgets::popup::{Popup, PopupCommand, PopupMessage},
 };
 
 use itertools::Itertools;
@@ -11,26 +11,24 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     symbols::border,
     text::{Line, Span},
     widgets::{Block, List, ListDirection, ListItem, ListState, Padding},
 };
 
-/// Different commands that can be issued from a restore popup.
+/// Different commands that can be issued from a backup manager popup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RestorePopupCommand {
-    /// Command to restore a backup at a specified index.
-    RestoreBackup(usize),
+pub enum BackupManagerPopupCommand {
+    ToggleBackupPin(usize),
+    DeleteBackup(usize),
 }
 
-/// Popup for restoring a backup for a character.
+/// Popup for managing backups for a character.
 #[derive(Debug, Clone)]
-pub struct RestorePopup {
-    /// The character associated with the restore popup.
-    pub dest_char: CharacterWithIndex,
-    /// The copied character if applicable, for restoring from their backups.
-    pub source_char: Option<CharacterWithIndex>,
+pub struct BackupManagerPopup {
+    /// The character associated with the backup manager popup.
+    pub character: CharacterWithIndex,
 
     /// Whether the popup should close.
     pub close: bool,
@@ -41,14 +39,13 @@ pub struct RestorePopup {
     pub commands: Vec<PopupCommand>,
 }
 
-impl RestorePopup {
+impl BackupManagerPopup {
     #[must_use]
-    pub fn new(character: CharacterWithIndex, copied_char: Option<CharacterWithIndex>) -> Self {
+    pub fn new(character: CharacterWithIndex, selected_index: usize) -> Self {
         let mut list_state = ListState::default();
-        list_state.select(Some(0));
+        list_state.select(Some(selected_index));
         Self {
-            dest_char: character,
-            source_char: copied_char,
+            character,
 
             close: false,
             state: list_state,
@@ -59,27 +56,20 @@ impl RestorePopup {
 
     /// Push a command to the popup's command list.
     #[inline]
-    pub fn push_command(&mut self, command: RestorePopupCommand) {
+    pub fn push_command(&mut self, command: BackupManagerPopupCommand) {
         self.commands
-            .push(PopupCommand::Restore(self.dest_char.1, command));
+            .push(PopupCommand::BackupManager(self.character.1, command));
     }
 
     /// Push a command to the popup's command list and close the popup.
     #[inline]
-    pub fn push_command_close(&mut self, command: RestorePopupCommand) {
+    pub fn push_command_close(&mut self, command: BackupManagerPopupCommand) {
         self.push_command(command);
         self.close = true;
     }
-
-    /// Get the source character, or the destination character if no source is set.
-    #[inline]
-    #[must_use]
-    pub fn source_char(&self) -> &CharacterWithIndex {
-        self.source_char.as_ref().unwrap_or(&self.dest_char)
-    }
 }
 
-impl Popup for RestorePopup {
+impl Popup for BackupManagerPopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
         match key.code {
             KeyCode::Up | KeyCode::Char('w' | 'W') => {
@@ -90,13 +80,16 @@ impl Popup for RestorePopup {
                 self.state
                     .select(self.state.selected().map(|i| i.saturating_add(1)));
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Char('e' | 'E') => {
                 if let Some(selected) = self.state.selected()
-                    && selected < self.source_char().0.backups().len()
+                    && self.character.0.backups().len() > selected
                 {
-                    self.push_command_close(RestorePopupCommand::RestoreBackup(selected));
+                    self.push_command(BackupManagerPopupCommand::ToggleBackupPin(selected));
                 }
             }
+            // KeyCode::Enter | KeyCode::Char(' ') => {
+            //     log::info!("Hi");
+            // }
             KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
                 self.close = true;
             }
@@ -105,22 +98,22 @@ impl Popup for RestorePopup {
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        let title_spans = vec![
-            Span::from(" Restore "),
-            self.dest_char.0.display_span(true),
-            Span::from(" "),
-        ];
-        let title_style = Style::default().add_modifier(Modifier::BOLD);
-
         let block = Block::bordered()
-            .title(Line::from(title_spans).style(title_style))
+            .title(
+                Line::from(vec![
+                    Span::from(" Backups for "),
+                    self.character.0.display_span(true),
+                    Span::from(" "),
+                ])
+                .bold(),
+            )
             .border_set(border::ROUNDED)
             .title_alignment(Alignment::Center)
             .style(Style::default().bg(Color::Black))
             .padding(Padding::symmetric(1, 0));
 
         let items = self
-            .source_char()
+            .character
             .0
             .backups()
             .iter()
@@ -148,6 +141,17 @@ impl Popup for RestorePopup {
         list_with_scrollbar(list_view, area, buf, &mut self.state);
     }
 
+    fn process_message(&mut self, message: &PopupMessage) {
+        match message {
+            PopupMessage::UpdateCharacter(updated_char) => {
+                if updated_char.0.is_same_character(&self.character.0) {
+                    self.character = updated_char.clone();
+                    log::debug!("Updated backup manager popup character info");
+                }
+            }
+        }
+    }
+
     fn should_close(&self) -> bool {
         self.close
     }
@@ -155,12 +159,33 @@ impl Popup for RestorePopup {
         self.close = true;
     }
     fn popup_identifier(&self) -> &'static str {
-        "restore_popup"
+        "backup_manager_popup"
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
-        Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
+        let selected_backup_index = self.state.selected().unwrap_or(0);
+        let pin_backup_opt = if let Some(backup) =
+            self.character.0.backups().get(selected_backup_index)
+            && backup.is_pinned
+        {
+            "E: Unpin Backup"
+        } else {
+            "E: Pin Backup"
+        };
+        Some(vec![
+            "↑/↓",
+            "↵/Space: Select",
+            "Esc: Close",
+            "D: Delete Backup",
+            pin_backup_opt,
+        ])
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
         Some(&mut self.commands)
+    }
+    fn popup_min_width(&self) -> u16 {
+        64
+    }
+    fn popup_min_height(&self) -> u16 {
+        16
     }
 }

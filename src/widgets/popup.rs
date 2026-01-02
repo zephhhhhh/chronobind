@@ -4,6 +4,7 @@ use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
+use ratatui::widgets::{Clear, Widget};
 
 /// Type alias for a boxed `Popup` trait object.
 pub type PopupPtr = Box<dyn Popup + Send + Sync>;
@@ -16,6 +17,8 @@ impl Debug for Box<dyn Popup + Send + Sync> {
 
 /// Type alias for commands that can be issued from a popup.
 pub type PopupCommand = crate::PopupAppCommand;
+/// Type alias for commands that can be issued to a popup from the main app.
+pub type PopupMessage = crate::AppPopupMessage;
 
 /// Trait representing a popup widget.
 pub trait Popup {
@@ -65,6 +68,7 @@ pub trait Popup {
             self.popup_min_height(),
         );
 
+        Widget::render(Clear, popup_area, frame.buffer_mut());
         self.draw(popup_area, frame.buffer_mut());
     }
     /// Retrieve and clear any commands issued by the popup.
@@ -77,6 +81,9 @@ pub trait Popup {
             }
         })
     }
+
+    /// Process a message sent to the popup.
+    fn process_message(&mut self, _message: &PopupMessage) {}
 
     /// Get the width percentage for the popup.
     #[inline]

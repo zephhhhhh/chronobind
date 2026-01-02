@@ -1,7 +1,8 @@
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::{
-    Character,
+    CharacterWithIndex,
+    popups::wrap_selection,
     widgets::popup::{Popup, PopupCommand},
 };
 
@@ -11,30 +12,32 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     symbols::border,
-    text::Line,
-    widgets::{
-        Block, Clear, List, ListDirection, ListItem, ListState, Padding, StatefulWidget, Widget,
-    },
+    text::{Line, Span},
+    widgets::{Block, List, ListDirection, ListItem, ListState, Padding, StatefulWidget},
 };
 
 /// Different commands that can be issued from a backup popup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackupPopupCommand {
+    /// Command to open the manage backups popup.
+    ManageBackups,
     /// Command to backup selected files.
     BackupSelectedFiles,
     /// Command to backup all files.
     BackupAllFiles,
     /// Command to restore from backup.
     RestoreFromBackup,
+    /// Command to restore from copied character's backups.
+    RestoreFromCopiedBackups,
 }
 
 /// Popup for backup options for a character.
 #[derive(Debug, Clone)]
 pub struct BackupPopup {
     /// The character associated with the backup popup.
-    pub character: Character,
-    /// The index of the character in the main character list.
-    pub character_index: usize,
+    pub character: CharacterWithIndex,
+    /// The copied character if applicable, for restoring from their backups.
+    pub copied_character: Option<CharacterWithIndex>,
 
     /// Whether the popup should close.
     pub close: bool,
@@ -47,12 +50,15 @@ pub struct BackupPopup {
 
 impl BackupPopup {
     #[must_use]
-    pub fn new(character: Character, character_index: usize) -> Self {
+    pub fn new(
+        character: CharacterWithIndex,
+        copied_character: Option<CharacterWithIndex>,
+    ) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
             character,
-            character_index,
+            copied_character,
 
             close: false,
             state: list_state,
@@ -65,7 +71,7 @@ impl BackupPopup {
     #[inline]
     pub fn push_command(&mut self, command: BackupPopupCommand) {
         self.commands
-            .push(PopupCommand::Backup(self.character_index, command));
+            .push(PopupCommand::Backup(self.character.1, command));
     }
 
     /// Push a command to the popup's command list and close the popup.
@@ -74,6 +80,14 @@ impl BackupPopup {
         self.push_command(command);
         self.close = true;
     }
+}
+
+impl BackupPopup {
+    pub const MANAGE_BACKUPS_IDX: usize = 0;
+    pub const BACKUP_SELECTED_IDX: usize = 1;
+    pub const BACKUP_ALL_IDX: usize = 2;
+    pub const RESTORE_FROM_BACKUP_IDX: usize = 3;
+    pub const RESTORE_FROM_COPIED_IDX: usize = 4;
 }
 
 impl Popup for BackupPopup {
@@ -90,9 +104,25 @@ impl Popup for BackupPopup {
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(selected) = self.state.selected() {
                     match selected {
-                        0 => self.push_command_close(BackupPopupCommand::BackupSelectedFiles),
-                        1 => self.push_command_close(BackupPopupCommand::BackupAllFiles),
-                        2 => self.push_command(BackupPopupCommand::RestoreFromBackup),
+                        Self::MANAGE_BACKUPS_IDX => {
+                            self.push_command(BackupPopupCommand::ManageBackups);
+                        }
+                        Self::BACKUP_SELECTED_IDX => {
+                            self.push_command_close(BackupPopupCommand::BackupSelectedFiles);
+                        }
+                        Self::BACKUP_ALL_IDX => {
+                            self.push_command_close(BackupPopupCommand::BackupAllFiles);
+                        }
+                        Self::RESTORE_FROM_BACKUP_IDX => {
+                            self.push_command(BackupPopupCommand::RestoreFromBackup);
+                        }
+                        Self::RESTORE_FROM_COPIED_IDX => {
+                            if self.copied_character.is_some() {
+                                self.push_command(BackupPopupCommand::RestoreFromCopiedBackups);
+                            } else {
+                                log::warn!("No copied character to restore from.");
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -116,21 +146,32 @@ impl Popup for BackupPopup {
             .padding(Padding::symmetric(1, 0));
 
         let item_names = [
+            "Manage backups",
             "Backup selected files",
             "Backup all files",
             "Restore from backup",
         ];
 
-        let items = item_names
+        let selected_index = self.state.selected().unwrap_or(0);
+        let mut items = item_names
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let hovered = i == self.state.selected().unwrap_or(0);
-                let content = dual_highlight_str(item, hovered);
+                let content = dual_highlight_str(item, selected_index == i);
                 let line = Line::from(content).centered();
                 ListItem::new(line)
             })
             .collect::<Vec<ListItem>>();
+
+        if let Some(copied_char) = &self.copied_character {
+            let content = vec![
+                Span::from("Restore from "),
+                copied_char.0.display_span(true),
+                Span::from("'s backups"),
+            ];
+            let line = wrap_selection(content, selected_index == item_names.len());
+            items.push(ListItem::new(line));
+        }
 
         let list_view = List::new(items)
             .block(block)
@@ -139,7 +180,6 @@ impl Popup for BackupPopup {
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 
-        Widget::render(Clear, area, buf);
         StatefulWidget::render(list_view, area, buf, &mut self.state);
     }
 
@@ -157,5 +197,8 @@ impl Popup for BackupPopup {
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
         Some(&mut self.commands)
+    }
+    fn popup_min_width(&self) -> u16 {
+        64
     }
 }

@@ -6,11 +6,12 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState, StatefulWidget};
+use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState};
 
 use crate::Character;
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
+use crate::popups::list_with_scrollbar;
 
 /// The character list widget displays the characters grouped by realm with collapsible headers.
 #[derive(Debug, Clone)]
@@ -172,10 +173,8 @@ impl CharacterListWidget {
 
     /// Render the character list widget
     pub fn render(&mut self, area: Rect, buf: &mut Buffer, characters: &[Character]) {
-        const PADDING_VALUE: usize = 1;
-        const INDENT_DEPTH: usize = 3;
-        let indent = indentation(INDENT_DEPTH);
-        let padding = indentation(PADDING_VALUE);
+        const PADDING: usize = 1;
+        const INDENT: usize = 3;
 
         let title = Line::styled(
             " Characters ",
@@ -202,10 +201,10 @@ impl CharacterListWidget {
                 .fg(STD_FG)
                 .add_modifier(Modifier::DIM);
             let content = format!(
-                "{}{} {}[{realm}]",
-                padding,
+                "{pad}{} {}[{realm}]",
                 expandable_icon(is_collapsed),
-                highlight_symbol(hovered)
+                highlight_symbol(hovered),
+                pad = indentation(PADDING)
             );
             items.push(ListItem::new(content).style(header_style));
 
@@ -216,16 +215,19 @@ impl CharacterListWidget {
                     let style = Style::default();
 
                     let files_selected = character.any_file_selected();
-                    let colour = character.character.class.class_colour();
 
-                    let ui_span_text = format!("{}{indent}{}", padding, highlight_symbol(hovered));
+                    let ui_span_text = format!(
+                        "{pad}{}",
+                        highlight_symbol(hovered),
+                        pad = indentation(PADDING + INDENT)
+                    );
                     let ui_span_source = if files_selected {
                         Span::from(format!("{ui_span_text}• ")).style(style.fg(SELECTED_FG))
                     } else {
                         Span::from(ui_span_text).style(style)
                     };
 
-                    let main_span = Span::from(character.name()).style(style.fg(colour));
+                    let main_span = character.display_span(false);
                     items.push(ListItem::new(Line::from(vec![ui_span_source, main_span])));
                 }
             }
@@ -238,7 +240,7 @@ impl CharacterListWidget {
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 
-        StatefulWidget::render(list_view, area, buf, &mut self.state);
+        list_with_scrollbar(list_view, area, buf, &mut self.state);
     }
 }
 

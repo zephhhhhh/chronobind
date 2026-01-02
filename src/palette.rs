@@ -84,10 +84,52 @@ pub const COLLAPSED_ICON: &str = "▶";
 /// Icon representing a collapsed item.
 pub const EXPANDED_ICON: &str = "▼";
 
+/// Icon used to indicate scrolling up.
+pub const SCROLL_UP_ICON: &str = "↑";
+/// Icon used to indicate scrolling down.
+pub const SCROLL_DOWN_ICON: &str = "↓";
+
 /// Symbol used to highlight selected items.
 pub const HIGHLIGHT_SYMBOL: &str = ">";
 /// Reverse highlight symbol used to indicate selection.
 pub const HIGHLIGHT_SYMBOL_REVERSED: &str = "<";
+
+/// Symbol used to indicate selected items.
+pub const SELECTED_SYMBOL: &str = "✓";
+/// Symbol used to indicate unselected items.
+pub const UNSELECTED_SYMBOL: &str = " ";
+
+/// Indentation string for nested items.
+/// Represents 1 level of indentation.
+pub const INDENTATION_STR: &str = " ";
+
+/// Symbol used to indicate pinned items.
+pub const PINNED_SYMBOL: &str = "☆";
+
+/// Symbol used to indicate unlimited values.
+pub const UNLIMITED_SYMBOL: &str = "∞";
+
+/// Get a string indicating whether an item is pinned, followed by a space if pinned.
+#[inline]
+#[must_use]
+pub const fn pinned_string(pinned: bool) -> &'static str {
+    if pinned {
+        concatcp!(PINNED_SYMBOL, " ")
+    } else {
+        ""
+    }
+}
+
+/// Get a checkbox string based on whether the item is selected.
+#[inline]
+#[must_use]
+pub const fn checkbox(selected: bool) -> &'static str {
+    if selected {
+        concatcp!('[', SELECTED_SYMBOL, ']')
+    } else {
+        concatcp!('[', UNSELECTED_SYMBOL, ']')
+    }
+}
 
 /// Get the highlight symbol based on whether the item is highlighted.
 /// # Returns
@@ -143,7 +185,7 @@ pub const fn expandable_icon(collapsed: bool) -> &'static str {
 #[inline]
 #[must_use]
 pub fn indentation(indent_level: usize) -> String {
-    " ".repeat(indent_level)
+    INDENTATION_STR.repeat(indent_level)
 }
 
 /// Format a `DateTime<Local>` for display in the UI.

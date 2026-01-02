@@ -6,7 +6,7 @@ use itertools::Itertools;
 use prost::Message;
 use ratatui::style::Color;
 
-use crate::files::read_folders_to_string;
+use crate::{backend::BACKUP_FILE_EXTENSION, files::read_folders_to_string};
 
 mod productdb {
     include!(concat!(env!("OUT_DIR"), "/productdb.rs"));
@@ -326,6 +326,13 @@ pub struct WowBackup {
 }
 
 impl WowBackup {
+    /// Returns a formatted string representation of the backup's name, including character name and timestamp.
+    #[inline]
+    #[must_use]
+    pub fn formatted_name(&self) -> String {
+        format!("{} | {}", self.char_name, self.formatted_timestamp())
+    }
+
     /// Returns a formatted string representation of the backup's timestamp.
     #[inline]
     #[must_use]
@@ -545,7 +552,7 @@ impl WowCharacter {
             .map(|entry| entry.path())
             .filter(|p| {
                 p.extension()
-                    .is_some_and(|txt| txt.to_str().is_some_and(|txt| txt == "zip"))
+                    .is_some_and(|txt| txt.to_str().is_some_and(|txt| txt == BACKUP_FILE_EXTENSION))
             })
             .filter_map(|p| Some((p.clone(), p.file_stem()?.to_str()?.to_string())))
             .filter_map(|(p, stem)| {
@@ -591,6 +598,50 @@ impl WowCharacter {
                 }
             });
         load_result.is_some()
+    }
+}
+
+impl WowCharacter {
+    /// Returns `true` if the other character represents the same character
+    /// (same `name`, `realm`, `account`, and `branch`).
+    #[inline]
+    #[must_use]
+    pub fn is_same_character(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.realm == other.realm
+            && self.account == other.account
+            && self.branch == other.branch
+    }
+
+    /// Returns a vector of unpinned & automatically generated backups for the character.
+    #[inline]
+    #[must_use]
+    pub fn unpinned_auto_backups(&self) -> Vec<WowBackup> {
+        self.backups
+            .iter()
+            .filter(|b| !b.is_pinned && b.is_paste)
+            .cloned()
+            .collect()
+    }
+
+    /// Returns the count of unpinned backups for the character.
+    #[inline]
+    #[must_use]
+    pub fn unpinned_auto_backups_count(&self) -> usize {
+        self.backups
+            .iter()
+            .filter(|b| !b.is_pinned && b.is_paste)
+            .count()
+    }
+
+    /// Returns the count of unpinned backups for the character.
+    #[inline]
+    #[must_use]
+    pub fn oldest_unpinned_auto_backup(&self) -> Option<&WowBackup> {
+        self.backups
+            .iter()
+            .filter(|b| !b.is_pinned && b.is_paste)
+            .min_by_key(|b| b.timestamp)
     }
 }
 

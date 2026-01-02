@@ -4,13 +4,12 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, List, ListDirection, ListItem, ListState, Paragraph, StatefulWidget, Widget,
-};
+use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState, Paragraph, Widget};
 
 use crate::Character;
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
+use crate::popups::list_with_scrollbar;
 
 /// Represents a row in the file list
 #[derive(Debug, Clone, Copy)]
@@ -45,7 +44,7 @@ impl FileListWidget {
     pub const CONFIG_FILE_ICON: &str = "⚙";
 
     /// Padding value for the file list.
-    const PADDING_VALUE: usize = 1;
+    const PADDING: usize = 1;
 
     /// Create a new file list widget
     #[must_use]
@@ -119,7 +118,7 @@ impl FileListWidget {
                             if ctrl {
                                 let selected = character.all_addon_files_selected();
                                 character.set_all_addon_selected(!selected);
-                                log::info!(
+                                log::debug!(
                                     "{} all addon files",
                                     if selected { "Deselected" } else { "Selected" }
                                 );
@@ -131,7 +130,7 @@ impl FileListWidget {
                         FileRowKind::AddonFile(idx) => {
                             let selected = character.toggle_addon_file_selected(idx);
                             let file_name = character.addon_files()[idx].get_full_filename();
-                            log::info!("Addon file '{file_name}' toggled: {selected}");
+                            log::debug!("Addon file '{file_name}' toggled: {selected}");
                         }
                     }
                 }
@@ -141,7 +140,7 @@ impl FileListWidget {
                 let all_selected =
                     character.all_config_files_selected() && character.all_addon_files_selected();
                 character.set_all_selected(!all_selected);
-                log::info!(
+                log::debug!(
                     "All files {}",
                     if all_selected {
                         "deselected"
@@ -164,8 +163,6 @@ impl FileListWidget {
         hovered: bool,
         config: &FileListConfig,
     ) -> ListItem<'a> {
-        let padding = indentation(Self::PADDING_VALUE);
-
         let file = &character.config_files()[file_idx];
         let selected = character.selected_config_files[file_idx];
         let has_friendly = file.has_friendly_name();
@@ -180,10 +177,10 @@ impl FileListWidget {
         let mut style = Style::default().fg(fg_colour);
 
         let file_prefix_ui = Span::from(format!(
-            "{}[{}] {}  ",
-            padding,
-            if selected { "✓" } else { " " },
-            Self::CONFIG_FILE_ICON
+            "{pad}{} {}  ",
+            checkbox(selected),
+            Self::CONFIG_FILE_ICON,
+            pad = indentation(Self::PADDING)
         ))
         .style(style);
 
@@ -207,8 +204,6 @@ impl FileListWidget {
         collapsed: bool,
         hovered: bool,
     ) -> ListItem<'_> {
-        let padding = indentation(Self::PADDING_VALUE);
-
         let no_addon_files = character.addon_files().is_empty();
         let any_addon_file_selected = character.any_addon_file_selected();
         let all_addon_file_selected = character.all_addon_files_selected();
@@ -223,10 +218,10 @@ impl FileListWidget {
 
         let label = format!("Addon Options ({count})");
         let content = format!(
-            "{}{} {}{label}",
-            padding,
+            "{pad}{} {}{label}",
             expandable_icon(collapsed),
-            highlight_symbol(hovered)
+            highlight_symbol(hovered),
+            pad = indentation(Self::PADDING)
         );
 
         let dropdown_style = Style::default()
@@ -245,8 +240,6 @@ impl FileListWidget {
         config: &FileListConfig,
     ) -> ListItem<'a> {
         const ADDON_IDENT: usize = 3;
-        let indent = indentation(ADDON_IDENT);
-        let padding = indentation(Self::PADDING_VALUE);
 
         let selected = character.selected_addon_files[file_idx];
         let file = &character.addon_files()[file_idx];
@@ -262,10 +255,10 @@ impl FileListWidget {
         let mut style = Style::default().fg(fg_colour);
 
         let file_prefix_ui = Span::from(format!(
-            "{}{indent}[{}] {} ",
-            padding,
-            if selected { "✓" } else { " " },
-            Self::ADDON_FILE_ICON
+            "{pad}{} {} ",
+            checkbox(selected),
+            Self::ADDON_FILE_ICON,
+            pad = indentation(Self::PADDING + ADDON_IDENT)
         ))
         .style(style);
 
@@ -296,17 +289,19 @@ impl FileListWidget {
             |character| {
                 let style = Style::default().add_modifier(Modifier::BOLD);
                 let files_span = Span::from(" Files - ").style(style);
-                let char_span = Span::from(format!("{} ", character.name()))
-                    .style(style.fg(character.character.class.class_colour()));
-                Line::from(vec![files_span, char_span])
+                let char_span = character.display_span(true);
+                Line::from(vec![files_span, char_span, Span::from(" ")])
             },
         );
         let block = Block::bordered().title(title).border_set(border::THICK);
 
         let Some(character) = character else {
-            Paragraph::new("No character selected")
-                .block(block)
-                .render(area, buf);
+            Paragraph::new(format!(
+                "{pad}No character selected",
+                pad = indentation(Self::PADDING)
+            ))
+            .block(block)
+            .render(area, buf);
             return;
         };
 
@@ -344,7 +339,7 @@ impl FileListWidget {
                 list_view.highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG));
         }
 
-        StatefulWidget::render(list_view, area, buf, &mut self.state);
+        list_with_scrollbar(list_view, area, buf, &mut self.state);
     }
 }
 

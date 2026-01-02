@@ -12,9 +12,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols::border,
     text::Line,
-    widgets::{
-        Block, Clear, List, ListDirection, ListItem, ListState, Padding, StatefulWidget, Widget,
-    },
+    widgets::{Block, List, ListDirection, ListItem, ListState, Padding, StatefulWidget},
 };
 
 /// Different commands that can be issued from a branch popup.
@@ -133,7 +131,6 @@ impl Popup for BranchPopup {
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 
-        Widget::render(Clear, area, buf);
         StatefulWidget::render(list_view, area, buf, &mut self.state);
     }
 

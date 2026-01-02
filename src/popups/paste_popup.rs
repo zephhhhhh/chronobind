@@ -2,6 +2,7 @@
 use crate::palette::*;
 use crate::{
     Character,
+    popups::wrap_selection,
     widgets::popup::{Popup, PopupCommand},
 };
 
@@ -9,7 +10,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     symbols::border,
     text::{Line, Span},
     widgets::{
@@ -128,12 +129,10 @@ impl Popup for PasteConfirmPopup {
             },
             {
                 let prompt = Span::from(format!("Paste {} file{} to ", self.file_count, plural));
-                let char_name = Span::styled(
-                    self.character.display_name(true),
-                    Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .fg(self.character.class_colour()),
-                );
+                let char_name = self
+                    .character
+                    .display_span(true)
+                    .add_modifier(Modifier::BOLD);
                 ListItem::new(wrap_selection(
                     vec![prompt, char_name],
                     selected_idx == Self::CONFIRM_IDX,
@@ -170,13 +169,4 @@ impl Popup for PasteConfirmPopup {
     fn popup_min_width(&self) -> u16 {
         50
     }
-}
-
-/// Create a dual highlighted symbol for hovered items, for lines with multiple spans.
-fn wrap_selection(mut spans: Vec<Span>, hovered: bool) -> Line {
-    if hovered {
-        spans.insert(0, Span::from(highlight_symbol(hovered)));
-        spans.push(Span::from(highlight_symbol_rev(hovered)));
-    }
-    Line::from(spans).centered()
 }
