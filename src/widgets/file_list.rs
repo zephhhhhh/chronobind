@@ -110,9 +110,18 @@ impl FileListWidget {
                 if selected_index < rows.len() {
                     match rows[selected_index] {
                         FileRowKind::File(idx) => {
-                            let selected = character.toggle_config_file_selected(idx);
-                            let file_name = character.config_files()[idx].get_full_filename();
-                            log::info!("File '{file_name}' toggled: {selected}");
+                            if ctrl {
+                                let selected = character.all_config_files_selected();
+                                character.set_all_config_selected(!selected);
+                                log::info!(
+                                    "{} all config files",
+                                    if selected { "Deselected" } else { "Selected" }
+                                );
+                            } else {
+                                let selected = character.toggle_config_file_selected(idx);
+                                let file_name = character.config_files()[idx].get_full_filename();
+                                log::info!("File '{file_name}' toggled: {selected}");
+                            }
                         }
                         FileRowKind::AddonHeader { .. } => {
                             if ctrl {
@@ -128,9 +137,18 @@ impl FileListWidget {
                             }
                         }
                         FileRowKind::AddonFile(idx) => {
-                            let selected = character.toggle_addon_file_selected(idx);
-                            let file_name = character.addon_files()[idx].get_full_filename();
-                            log::debug!("Addon file '{file_name}' toggled: {selected}");
+                            if ctrl {
+                                let selected = character.all_addon_files_selected();
+                                character.set_all_addon_selected(!selected);
+                                log::debug!(
+                                    "{} all addon files",
+                                    if selected { "Deselected" } else { "Selected" }
+                                );
+                            } else {
+                                let selected = character.toggle_addon_file_selected(idx);
+                                let file_name = character.addon_files()[idx].get_full_filename();
+                                log::debug!("Addon file '{file_name}' toggled: {selected}");
+                            }
                         }
                     }
                 }
