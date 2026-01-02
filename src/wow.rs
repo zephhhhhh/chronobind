@@ -321,6 +321,8 @@ pub struct WowBackup {
     pub timestamp: DateTime<Local>,
     /// Indicates whether the backup was created during a paste operation.
     pub is_paste: bool,
+    /// Indicates whether the backup is pinned to not be auto-removed.
+    pub is_pinned: bool,
 }
 
 impl WowBackup {
@@ -547,11 +549,13 @@ impl WowCharacter {
             })
             .filter_map(|p| Some((p.clone(), p.file_stem()?.to_str()?.to_string())))
             .filter_map(|(p, stem)| {
-                let (char_name, timestamp, is_paste) = crate::backend::extract_backup_name(&stem)?;
+                let (char_name, timestamp, is_paste, is_pinned) =
+                    crate::backend::extract_backup_name(&stem)?;
                 Some(WowBackup {
                     char_name,
                     timestamp,
                     is_paste,
+                    is_pinned,
                     path: p,
                 })
             })

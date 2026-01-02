@@ -17,6 +17,8 @@ use crate::files::{ensure_directory, walk_dir_recursive};
 
 /// Suffix to append to backup files created during a paste operation.
 const PASTE_IDENT: &str = "RESTORE";
+/// Suffix to append to backup files that are pinned to not be auto-removed.
+const PINNED_IDENT: &str = "PINNED";
 
 /// Time format used in backup file names.
 pub const BACKUP_FILE_TIME_FORMAT: &str = "%Y%m%d-%H%M%S";
@@ -187,20 +189,27 @@ pub fn paste_character_files(
 
 /// Extract the character name and timestamp from a backup file path.
 #[must_use]
-pub fn extract_backup_name(backup_filestem: &str) -> Option<(String, DateTime<Local>, bool)> {
+pub fn extract_backup_name(backup_filestem: &str) -> Option<(String, DateTime<Local>, bool, bool)> {
     let segments = backup_filestem.split('_').collect::<Vec<&str>>();
     if segments.len() < 2 {
         return None;
     }
     let name = segments[0].to_string();
     let date = NaiveDateTime::parse_from_str(segments[1], BACKUP_FILE_TIME_FORMAT).ok()?;
-    let paste = if segments.len() >= 3 {
-        segments[2] == PASTE_IDENT
-    } else {
-        false
-    };
+    let remaining_segments = segments.len().saturating_sub(2);
 
-    Some((name, Local.from_local_datetime(&date).unwrap(), paste))
+    let mut paste = false;
+    let mut pinned = false;
+
+    for i in 0..remaining_segments {
+        match segments[2 + i] {
+            PASTE_IDENT => paste = true,
+            PINNED_IDENT => pinned = true,
+            _ => {}
+        }
+    }
+
+    Some((name, Local.from_local_datetime(&date).unwrap(), paste, pinned))
 }
 
 /// Restore a backup for the given `WoW` character from the specified backup file path.
