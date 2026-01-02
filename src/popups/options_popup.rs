@@ -12,7 +12,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols::border,
     text::Line,
-    widgets::{Block, Clear, List, ListDirection, ListState, StatefulWidget, Widget},
+    widgets::{Block, Clear, List, ListDirection, ListState, Padding, StatefulWidget, Widget},
 };
 
 /// Different commands that can be issued from a restore popup.
@@ -136,6 +136,7 @@ impl Popup for OptionsPopup {
         let block = Block::bordered()
             .title(Line::styled(" ChronoBind Options ", title_style))
             .border_set(border::ROUNDED)
+            .padding(Padding::symmetric(1, 0))
             .title_alignment(Alignment::Center)
             .style(Style::default().bg(Color::Black));
 
@@ -179,7 +180,7 @@ impl Popup for OptionsPopup {
         "options_popup"
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
-        Some(vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"])
+        Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
         Some(&mut self.commands)

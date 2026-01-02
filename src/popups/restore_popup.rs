@@ -13,7 +13,9 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols::border,
     text::Line,
-    widgets::{Block, Clear, List, ListDirection, ListItem, ListState, StatefulWidget, Widget},
+    widgets::{
+        Block, Clear, List, ListDirection, ListItem, ListState, Padding, StatefulWidget, Widget,
+    },
 };
 
 /// Different commands that can be issued from a restore popup.
@@ -110,7 +112,8 @@ impl Popup for RestorePopup {
             .title(Line::styled(title, title_style))
             .border_set(border::ROUNDED)
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Black));
+            .style(Style::default().bg(Color::Black))
+            .padding(Padding::symmetric(1, 0));
 
         let items = self
             .character
@@ -151,7 +154,7 @@ impl Popup for RestorePopup {
         "restore_popup"
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
-        Some(vec!["↑/↓: Nav", "↵/Space: Select", "Esc: Close"])
+        Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
         Some(&mut self.commands)

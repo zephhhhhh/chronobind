@@ -874,28 +874,28 @@ impl ChronoBindApp {
         const BOTTOM_BAR_SEP: &str = " | ";
 
         let suffix_options = [
-            "t: WoW Version".to_string(),
-            "o: Options".to_string(),
-            "q: Quit".to_string(),
+            "T: WoW Version".to_string(),
+            "(O)ptions".to_string(),
+            "(Q)uit".to_string(),
         ];
         let status_elements = if self.console_widget.is_visible() {
-            vec!["↑/↓: Scroll", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
+            vec!["↑/↓", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
         } else {
             match self.input_mode {
                 InputMode::Navigation => {
-                    let mut items = vec!["↑/↓: Nav", "↵/→/Space: Select", "b: Backup", "c: Copy"];
+                    let mut items = vec!["↑/↓", "↵/→/Space: Select", "(B)ackup", "(C)opy"];
                     if self.copied_char.is_some() {
-                        items.push("v: Paste");
+                        items.push("V: Paste");
                     }
                     items
                 }
                 InputMode::FileSelection => vec![
-                    "↑/↓: Nav",
+                    "↑/↓",
                     "←: Back",
                     "Space/↵/→: Toggle",
                     "Ctrl+A: Select All",
-                    "b: Backup",
-                    "c: Copy",
+                    "(B)ackup",
+                    "(C)opy",
                 ],
                 InputMode::Popup => self.popup.as_ref().map_or_else(Vec::new, |popup| {
                     popup.bottom_bar_options().unwrap_or_default()
@@ -905,11 +905,12 @@ impl ChronoBindApp {
 
         let line_style = Style::default().bg(Color::White).fg(Color::Black);
 
-        let final_text = if self.input_mode == InputMode::Popup {
+        let final_text = if self.input_mode == InputMode::Popup || self.console_widget.is_visible()
+        {
             status_elements
                 .iter()
                 .map(std::string::ToString::to_string)
-                .join(" | ")
+                .join(BOTTOM_BAR_SEP)
         } else {
             status_elements
                 .iter()
@@ -918,7 +919,8 @@ impl ChronoBindApp {
                 .join(BOTTOM_BAR_SEP)
         };
 
-        let status_line = Line::from(Span::styled(final_text, Style::default())).style(line_style);
+        let status_line =
+            Line::from(Span::styled(format!(" {final_text}"), Style::default())).style(line_style);
         status_line.render(area, buf);
     }
 }

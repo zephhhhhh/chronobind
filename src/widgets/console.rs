@@ -3,7 +3,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Paragraph, Widget};
+use ratatui::widgets::{Block, Padding, Paragraph, Widget, Wrap};
 
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
@@ -80,7 +80,8 @@ impl ConsoleWidget {
         let block = Block::bordered()
             .title(title)
             .style(Style::default())
-            .border_set(ratatui::symbols::border::THICK);
+            .border_set(ratatui::symbols::border::THICK)
+            .padding(Padding::symmetric(1, 0));
 
         let log_lines: Option<Vec<Line>> = tui_log::with_debug_logs(|logs| {
             let visible_lines = area.height.saturating_sub(2) as usize;
@@ -104,6 +105,9 @@ impl ConsoleWidget {
             vec![Line::from("Failed to retrieve logs").style(Style::default().fg(Color::Red))]
         });
 
-        Paragraph::new(log_text).block(block).render(area, buf);
+        Paragraph::new(log_text)
+            .wrap(Wrap { trim: false })
+            .block(block)
+            .render(area, buf);
     }
 }

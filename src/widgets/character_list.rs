@@ -172,8 +172,10 @@ impl CharacterListWidget {
 
     /// Render the character list widget
     pub fn render(&mut self, area: Rect, buf: &mut Buffer, characters: &[Character]) {
+        const PADDING_VALUE: usize = 1;
         const INDENT_DEPTH: usize = 3;
-        let indentation = indentation(INDENT_DEPTH);
+        let indent = indentation(INDENT_DEPTH);
+        let padding = indentation(PADDING_VALUE);
 
         let title = Line::styled(
             " Characters ",
@@ -200,7 +202,8 @@ impl CharacterListWidget {
                 .fg(STD_FG)
                 .add_modifier(Modifier::DIM);
             let content = format!(
-                "{} {}[{realm}]",
+                "{}{} {}[{realm}]",
+                padding,
                 expandable_icon(is_collapsed),
                 highlight_symbol(hovered)
             );
@@ -215,7 +218,7 @@ impl CharacterListWidget {
                     let files_selected = character.any_file_selected();
                     let colour = character.character.class.class_colour();
 
-                    let ui_span_text = format!("{indentation}{}", highlight_symbol(hovered));
+                    let ui_span_text = format!("{}{indent}{}", padding, highlight_symbol(hovered));
                     let ui_span_source = if files_selected {
                         Span::from(format!("{ui_span_text}• ")).style(style.fg(SELECTED_FG))
                     } else {

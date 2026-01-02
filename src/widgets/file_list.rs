@@ -44,6 +44,9 @@ impl FileListWidget {
     /// Icon representing a config file.
     pub const CONFIG_FILE_ICON: &str = "⚙";
 
+    /// Padding value for the file list.
+    const PADDING_VALUE: usize = 1;
+
     /// Create a new file list widget
     #[must_use]
     pub fn new() -> Self {
@@ -161,6 +164,8 @@ impl FileListWidget {
         hovered: bool,
         config: &FileListConfig,
     ) -> ListItem<'a> {
+        let padding = indentation(Self::PADDING_VALUE);
+
         let file = &character.config_files()[file_idx];
         let selected = character.selected_config_files[file_idx];
         let has_friendly = file.has_friendly_name();
@@ -175,7 +180,8 @@ impl FileListWidget {
         let mut style = Style::default().fg(fg_colour);
 
         let file_prefix_ui = Span::from(format!(
-            "[{}] {}  ",
+            "{}[{}] {}  ",
+            padding,
             if selected { "✓" } else { " " },
             Self::CONFIG_FILE_ICON
         ))
@@ -201,6 +207,8 @@ impl FileListWidget {
         collapsed: bool,
         hovered: bool,
     ) -> ListItem<'_> {
+        let padding = indentation(Self::PADDING_VALUE);
+
         let no_addon_files = character.addon_files().is_empty();
         let any_addon_file_selected = character.any_addon_file_selected();
         let all_addon_file_selected = character.all_addon_files_selected();
@@ -215,7 +223,8 @@ impl FileListWidget {
 
         let label = format!("Addon Options ({count})");
         let content = format!(
-            "{} {}{label}",
+            "{}{} {}{label}",
+            padding,
             expandable_icon(collapsed),
             highlight_symbol(hovered)
         );
@@ -237,6 +246,7 @@ impl FileListWidget {
     ) -> ListItem<'a> {
         const ADDON_IDENT: usize = 3;
         let indent = indentation(ADDON_IDENT);
+        let padding = indentation(Self::PADDING_VALUE);
 
         let selected = character.selected_addon_files[file_idx];
         let file = &character.addon_files()[file_idx];
@@ -252,7 +262,8 @@ impl FileListWidget {
         let mut style = Style::default().fg(fg_colour);
 
         let file_prefix_ui = Span::from(format!(
-            "{indent}[{}] {} ",
+            "{}{indent}[{}] {} ",
+            padding,
             if selected { "✓" } else { " " },
             Self::ADDON_FILE_ICON
         ))
