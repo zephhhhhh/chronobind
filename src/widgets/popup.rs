@@ -33,7 +33,7 @@ pub trait Popup {
     fn close(&mut self);
 
     /// Get the name of the popup.
-    fn popup_identifier(&self) -> &str;
+    fn popup_identifier(&self) -> &'static str;
 
     /// Get options for the bottom bar, if any.
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {

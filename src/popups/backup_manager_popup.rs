@@ -67,6 +67,13 @@ impl BackupManagerPopup {
         self.push_command(command);
         self.close = true;
     }
+
+    /// Get the backup at a specified index from the source character.
+    #[inline]
+    #[must_use]
+    pub fn get_backup(&self, index: usize) -> Option<&crate::wow::WowBackup> {
+        self.character.0.backups().get(index)
+    }
 }
 
 impl Popup for BackupManagerPopup {
@@ -87,9 +94,21 @@ impl Popup for BackupManagerPopup {
                     self.push_command(BackupManagerPopupCommand::ToggleBackupPin(selected));
                 }
             }
-            // KeyCode::Enter | KeyCode::Char(' ') => {
-            //     log::info!("Hi");
-            // }
+            KeyCode::Char('d' | 'D') => {
+                if let Some(selected) = self.state.selected()
+                    && let Some(backup) = self.get_backup(selected).cloned()
+                {
+                    let command = PopupCommand::BackupManager(
+                        self.character.1,
+                        BackupManagerPopupCommand::DeleteBackup(selected),
+                    );
+                    self.commands.push(command.with_confirm_and_line(vec![
+                        Span::from("Delete `"),
+                        backup.formatted_name().bold(),
+                        Span::from("`"),
+                    ]));
+                }
+            }
             KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
                 self.close = true;
             }
@@ -163,8 +182,7 @@ impl Popup for BackupManagerPopup {
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         let selected_backup_index = self.state.selected().unwrap_or(0);
-        let pin_backup_opt = if let Some(backup) =
-            self.character.0.backups().get(selected_backup_index)
+        let pin_backup_opt = if let Some(backup) = self.get_backup(selected_backup_index)
             && backup.is_pinned
         {
             "E: Unpin Backup"
@@ -173,7 +191,6 @@ impl Popup for BackupManagerPopup {
         };
         Some(vec![
             "↑/↓",
-            "↵/Space: Select",
             "Esc: Close",
             "D: Delete Backup",
             pin_backup_opt,

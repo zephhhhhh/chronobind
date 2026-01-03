@@ -24,16 +24,16 @@ use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Span};
+use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::text::{Line, Span, Text};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::ChronoBindAppConfig;
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
+use crate::popups::confirm_popup::{CONFIRM_POPUP_ID, ConfirmationPopup};
 use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
-use crate::popups::paste_popup::{PasteConfirmPopup, PastePopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
 use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::{WowBackup, WowCharacter};
@@ -79,21 +79,85 @@ fn set_console_window_title(title: &str) -> crate::files::AnyResult<()> {
 /// Type alias for a character index.
 pub type CharacterIndex = usize;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConfirmActionText {
+    Text(Text<'static>),
+    Line(Line<'static>),
+    Span(Span<'static>),
+    Spans(Vec<Span<'static>>),
+}
+
+impl ConfirmActionText {
+    /// Convert to a `Text` representation.
+    #[must_use]
+    pub fn to_text(&self) -> Text<'static> {
+        match self {
+            Self::Text(text) => text.clone(),
+            Self::Line(line) => Text::from(line.clone()),
+            Self::Span(span) => Text::from(span.clone()),
+            Self::Spans(spans) => Text::from(Line::from(spans.clone())),
+        }
+    }
+}
+
+impl From<Text<'static>> for ConfirmActionText {
+    fn from(text: Text<'static>) -> Self {
+        Self::Text(text)
+    }
+}
+
+impl From<Line<'static>> for ConfirmActionText {
+    fn from(line: Line<'static>) -> Self {
+        Self::Line(line)
+    }
+}
+
+impl From<Span<'static>> for ConfirmActionText {
+    fn from(span: Span<'static>) -> Self {
+        Self::Span(span)
+    }
+}
+
+impl From<Vec<Span<'static>>> for ConfirmActionText {
+    fn from(spans: Vec<Span<'static>>) -> Self {
+        Self::Spans(spans)
+    }
+}
+
 /// Different commands that can be issued from a popup.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PopupAppCommand {
     /// Commands from the backup popup.
     Backup(CharacterIndex, BackupPopupCommand),
     /// Commands from the restore from backup popup.
     Restore(CharacterIndex, RestorePopupCommand),
-    /// Commands from the paste confirmation popup.
-    Paste(CharacterIndex, PastePopupCommand),
+    /// Paste from the copied character to the provided target character.
+    Paste(CharacterIndex),
     /// Commands from the branch selection popup.
     Branch(BranchPopupCommand),
     /// Commands from the options popup.
     Options(OptionsPopupCommand),
     /// Commands from the backup manager popup.
     BackupManager(CharacterIndex, BackupManagerPopupCommand),
+    /// Generic confirm action.
+    /// Opens a confirmation popup for the given action.
+    ConfirmAction(Box<Self>, Option<ConfirmActionText>),
+}
+
+impl PopupAppCommand {
+    /// Wrap the command in a confirmation action.
+    #[inline]
+    #[must_use]
+    pub fn with_confirm(self) -> Self {
+        Self::ConfirmAction(Box::new(self), None)
+    }
+
+    /// Wrap the command in a confirmation action, and a custom line to display as the confirm action.
+    #[inline]
+    #[must_use]
+    pub fn with_confirm_and_line(self, action_line: impl Into<ConfirmActionText>) -> Self {
+        Self::ConfirmAction(Box::new(self), Some(action_line.into()))
+    }
 }
 
 /// Different commands that can be issued to a popup from the main app.
@@ -337,7 +401,7 @@ impl Character {
     /// Get a styled span for the character's display name, using the appropriate class colour.
     #[inline]
     #[must_use]
-    pub fn display_span(&self, show_realm: bool) -> Span<'_> {
+    pub fn display_span(&self, show_realm: bool) -> Span<'static> {
         let content = self.display_name(show_realm);
         Span::styled(content, Style::default().fg(self.class_colour()))
     }
@@ -409,6 +473,9 @@ pub struct ChronoBindApp {
     popup_previous_input: Option<InputMode>,
     /// Current popup, if any.
     popup: Option<PopupPtr>,
+
+    /// Confirmation popup, if any.
+    confirm_popup: Option<ConfirmationPopup>,
 }
 
 impl ChronoBindApp {
@@ -448,6 +515,7 @@ impl ChronoBindApp {
 
             popup_previous_input: None,
             popup: None,
+            confirm_popup: None,
         };
 
         let branch_to_load = app
@@ -579,36 +647,6 @@ impl ChronoBindApp {
 }
 
 impl ChronoBindApp {
-    /// Open a popup menu with the given state.
-    pub fn open_popup<T: Popup + Send + Sync + 'static>(&mut self, popup: T) {
-        self.popup = Some(Box::new(popup));
-        if self.popup_previous_input.is_none() {
-            self.popup_previous_input = Some(self.input_mode);
-        }
-        self.input_mode = InputMode::Popup;
-    }
-
-    /// Close the current popup, restoring previous input mode.
-    pub fn close_popup(&mut self) {
-        let (popup_id, should_close) = if let Some(popup) = &self.popup {
-            (popup.popup_identifier().to_string(), popup.should_close())
-        } else {
-            log::warn!("No popup to close");
-            return;
-        };
-        log::debug!("Closing popup: {popup_id} (should_close: {should_close})");
-        self.input_mode = self.popup_previous_input.take().unwrap_or_default();
-        self.popup = None;
-    }
-
-    /// Send a message to the current popup.
-    #[inline]
-    pub fn send_popup_message(&mut self, message: &AppPopupMessage) {
-        if let Some(popup) = &mut self.popup {
-            popup.process_message(message);
-        }
-    }
-
     /// Runs the main application loop.
     /// # Errors
     /// Returns an error if event polling or reading fails.
@@ -669,6 +707,9 @@ impl ChronoBindApp {
 
         if let Some(popup) = &mut self.popup {
             popup.render(frame);
+        }
+        if let Some(confirm_popup) = &mut self.confirm_popup {
+            confirm_popup.render(frame);
         }
     }
 
@@ -743,10 +784,20 @@ impl ChronoBindApp {
                             "Cannot paste files onto the same character they were copied from"
                         );
                     } else {
+                        let Some(dest_char) = self.characters.get(target_char_idx) else {
+                            log::error!("Failed to get target character for paste operation!");
+                            return;
+                        };
                         let files_to_paste = self.characters[source_char_idx]
                             .get_all_selected_files()
                             .len();
-                        self.show_paste_confirm_popup(target_char_idx, files_to_paste);
+                        let plural = if files_to_paste == 1 { "" } else { "s" };
+                        let prompt = Span::from(format!("Paste {files_to_paste} file{plural} to "));
+                        let char_name = dest_char.display_span(true).add_modifier(Modifier::BOLD);
+                        self.handle_popup_command(
+                            &PopupAppCommand::Paste(target_char_idx)
+                                .with_confirm_and_line(Line::from(vec![prompt, char_name])),
+                        );
                     }
                 } else {
                     log::warn!("No files copied to paste");
@@ -839,17 +890,15 @@ impl ChronoBindApp {
                     perform_character_restore(self, *backup_index, *char_idx);
                 }
             },
-            PopupAppCommand::Paste(char_idx, paste_command) => match paste_command {
-                PastePopupCommand::ConfirmPaste => {
-                    let Some(source_char_idx) = &self.copied_char else {
-                        log::error!("No character found for paste operation!");
-                        return;
-                    };
-                    if perform_character_paste(self, *source_char_idx, *char_idx) {
-                        manage_character_backups(self, *char_idx);
-                    }
+            PopupAppCommand::Paste(char_idx) => {
+                let Some(source_char_idx) = &self.copied_char else {
+                    log::error!("No character found for paste operation!");
+                    return;
+                };
+                if perform_character_paste(self, *source_char_idx, *char_idx) {
+                    manage_character_backups(self, *char_idx);
                 }
-            },
+            }
             PopupAppCommand::Branch(BranchPopupCommand::SelectBranch(chosen_branch)) => {
                 log::info!("Switching to branch: {chosen_branch}");
                 self.set_selected_branch(chosen_branch);
@@ -861,28 +910,34 @@ impl ChronoBindApp {
                     log::error!("Failed to save configuration file: {e}");
                 });
             }
-            PopupAppCommand::BackupManager(char_idx, cmd) => match cmd {
-                BackupManagerPopupCommand::DeleteBackup(backup_index) => {
-                    //perform_backup_deletion(self, *char_idx, *backup_index);
-                    log::info!("Deleting backup: {backup_index}");
-                }
-                BackupManagerPopupCommand::ToggleBackupPin(backup_index) => {
-                    perform_backup_pin_toggle(self, *char_idx, *backup_index);
-                    self.refresh_character_backups(*char_idx);
-                    if let Some(character) = self.character_with_index(*char_idx) {
-                        self.send_popup_message(&AppPopupMessage::UpdateCharacter(character));
+            PopupAppCommand::BackupManager(char_idx, cmd) => {
+                match cmd {
+                    BackupManagerPopupCommand::DeleteBackup(backup_index) => {
+                        perform_backup_deletion(self, *char_idx, *backup_index);
+                    }
+                    BackupManagerPopupCommand::ToggleBackupPin(backup_index) => {
+                        perform_backup_pin_toggle(self, *char_idx, *backup_index);
                     }
                 }
-            },
+                self.refresh_character_backups(*char_idx);
+                if let Some(character) = self.character_with_index(*char_idx) {
+                    self.send_popup_message(&AppPopupMessage::UpdateCharacter(character));
+                }
+            }
+            PopupAppCommand::ConfirmAction(action, action_line) => {
+                log::debug!("Showing confirmation popup for action.");
+                self.show_confirmation_popup(*action.clone(), action_line.clone());
+            }
         }
     }
 
     /// Dispatch events to the popup, if any, also handlings closing the popup.
     /// Returns true if the event was handled and should not propagate further.
     fn dispatch_popup_commands(&mut self, ev: &Event) -> bool {
-        let Some(popup) = &mut self.popup else {
+        let Some(popup) = self.active_popup_mut() else {
             return false;
         };
+        let popup_id = popup.popup_identifier();
         let blocking = popup.handle_event(ev);
         let closing = popup.should_close();
         if let Some(commands) = popup.commands() {
@@ -891,7 +946,11 @@ impl ChronoBindApp {
             }
         }
         if closing {
-            self.close_popup();
+            if popup_id == CONFIRM_POPUP_ID {
+                self.close_confirmation_popup();
+            } else {
+                self.close_popup();
+            }
         }
         blocking
     }
@@ -973,12 +1032,12 @@ impl ChronoBindApp {
     #[allow(clippy::cast_possible_truncation)]
     fn top_bar(&self, area: Rect, buf: &mut Buffer) {
         let mock = if self.config.mock_mode {
-            " [Safe]"
+            "[Safe] "
         } else {
             Default::default()
         };
         let line_style = Style::default().fg(Color::White);
-        let title_span = Span::styled(format!(" ChronoBind {mock} "), line_style);
+        let title_span = Span::styled(format!(" ChronoBind {mock}"), line_style);
 
         let copy_display = if let Some(char_idx) = &self.copied_char
             && let Some(copied_char) = self.characters.get(*char_idx)
@@ -1033,7 +1092,7 @@ impl ChronoBindApp {
                     "(B)ackup",
                     "(C)opy",
                 ],
-                InputMode::Popup => self.popup.as_ref().map_or_else(Vec::new, |popup| {
+                InputMode::Popup => self.active_popup().map_or_else(Vec::new, |popup| {
                     popup.bottom_bar_options().unwrap_or_default()
                 }),
             }
@@ -1063,6 +1122,86 @@ impl ChronoBindApp {
 
 // Popups..
 impl ChronoBindApp {
+    /// Get a mutable reference to the active popup, or confirmation popup if any.
+    #[inline]
+    #[must_use]
+    pub fn active_popup_mut(&mut self) -> Option<&mut (dyn Popup + Send + Sync)> {
+        if let Some(popup) = &mut self.confirm_popup {
+            Some(popup)
+        } else if let Some(popup) = &mut self.popup {
+            Some(popup.as_mut())
+        } else {
+            None
+        }
+    }
+
+    /// Get a reference to the active popup, or confirmation popup if any.
+    #[inline]
+    #[must_use]
+    pub fn active_popup(&self) -> Option<&(dyn Popup + Send + Sync)> {
+        self.confirm_popup.as_ref().map_or_else(
+            || self.popup.as_ref().map(std::convert::AsRef::as_ref),
+            |popup| Some(popup),
+        )
+    }
+
+    /// Set the input mode to popup, saving the previous mode, if not already set.
+    const fn set_popup_input(&mut self) {
+        if self.popup_previous_input.is_none() {
+            self.popup_previous_input = Some(self.input_mode);
+        }
+        self.input_mode = InputMode::Popup;
+    }
+
+    /// Restore the input mode from before the popup was opened.
+    fn restore_input_from_popup(&mut self) {
+        self.input_mode = self.popup_previous_input.take().unwrap_or_default();
+    }
+
+    /// Open a popup menu with the given state.
+    pub fn open_popup<T: Popup + Send + Sync + 'static>(&mut self, popup: T) {
+        self.popup = Some(Box::new(popup));
+        self.set_popup_input();
+    }
+
+    /// Close the current popup, restoring previous input mode.
+    pub fn close_popup(&mut self) {
+        let (popup_id, should_close) = if let Some(popup) = &self.popup {
+            (popup.popup_identifier().to_string(), popup.should_close())
+        } else {
+            log::warn!("No popup to close");
+            return;
+        };
+        log::debug!("Closing popup: {popup_id} (should_close: {should_close})");
+        self.restore_input_from_popup();
+        self.popup = None;
+    }
+
+    /// Send a message to the current popup.
+    #[inline]
+    pub fn send_popup_message(&mut self, message: &AppPopupMessage) {
+        if let Some(popup) = &mut self.popup {
+            popup.process_message(message);
+        }
+    }
+
+    /// Show a generic confirmation popup for the given action.
+    pub fn show_confirmation_popup(
+        &mut self,
+        action: PopupAppCommand,
+        action_line: Option<ConfirmActionText>,
+    ) {
+        self.confirm_popup = Some(ConfirmationPopup::new(action, action_line));
+    }
+
+    /// Close the confirmation popup.
+    pub fn close_confirmation_popup(&mut self) {
+        self.confirm_popup = None;
+        if self.popup.is_none() {
+            self.restore_input_from_popup();
+        }
+    }
+
     /// Show the backup options popup for the given character index.
     pub fn show_backup_popup(&mut self, char_idx: usize) {
         let Some(character) = self.character_with_index(char_idx) else {
@@ -1085,16 +1224,6 @@ impl ChronoBindApp {
         };
 
         self.open_popup(BackupManagerPopup::new(character, selected_index));
-    }
-
-    /// Show the paste confirmation popup for the given character index.
-    pub fn show_paste_confirm_popup(&mut self, char_idx: usize, file_count: usize) {
-        let Some(character) = self.characters.get(char_idx).cloned() else {
-            log::error!("Invalid character index for paste confirm popup: {char_idx}");
-            return;
-        };
-
-        self.open_popup(PasteConfirmPopup::new(character, char_idx, file_count));
     }
 
     /// Show the branch selection popup.
@@ -1312,6 +1441,48 @@ fn perform_backup_pin_toggle(app: &ChronoBindApp, char_idx: usize, backup_index:
                 "Failed to toggle pin state for backup `{}` of character {}: {}",
                 backup.formatted_name(),
                 character.name(),
+                e
+            );
+            false
+        }
+    }
+}
+
+fn perform_backup_deletion(app: &ChronoBindApp, char_idx: usize, backup_index: usize) -> bool {
+    let Some(character) = app.character_with_install(char_idx) else {
+        log::error!("Invalid character index for backup deletion: {char_idx}");
+        return false;
+    };
+    let Some(backup) = character.0.backups().get(backup_index).cloned() else {
+        log::error!(
+            "Invalid backup selection index: {backup_index} for character {}",
+            character.0.name()
+        );
+        return false;
+    };
+
+    match backend::delete_backup_file(&backup, false, app.config.mock_mode) {
+        Ok(deleted) => {
+            if deleted {
+                log::info!(
+                    "Backup `{}` deleted successfully for character {}",
+                    backup.formatted_name(),
+                    character.0.name()
+                );
+            } else {
+                log::info!(
+                    "Backup `{}` was pinned and not deleted for character {}",
+                    backup.formatted_name(),
+                    character.0.name()
+                );
+            }
+            true
+        }
+        Err(e) => {
+            log::error!(
+                "Failed to delete backup `{}` for character {}: {}",
+                backup.formatted_name(),
+                character.0.name(),
                 e
             );
             false

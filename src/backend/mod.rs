@@ -383,18 +383,42 @@ pub fn manage_character_backups(
             .enumerate()
             .min_by_key(|(_, b)| b.timestamp)
         {
-            if !mock_mode && !oldest_backup.is_pinned {
-                std::fs::remove_file(&oldest_backup.path)?;
+            if delete_backup_file(oldest_backup, true, mock_mode)? {
                 removed_count += 1;
             }
-            log::info!(
-                "{}Removed old backup `{}`",
-                mock_prefix(mock_mode),
-                oldest_backup.formatted_name()
-            );
             auto_backups.remove(oldest_index);
         }
     }
 
     Ok(removed_count)
+}
+
+/// Manage automatic backups for the given `WoW` character, removing oldest unpinned backups
+/// if the maximum allowed number is exceeded.
+/// # Errors
+/// Returns an error if any file operations fail.
+pub fn delete_backup_file(
+    backup: &WowBackup,
+    auto_removed: bool,
+    mock_mode: bool,
+) -> AnyResult<bool> {
+    let bad_removal = auto_removed && backup.is_pinned;
+    if !mock_mode && !bad_removal {
+        std::fs::remove_file(&backup.path)?;
+    }
+    if bad_removal {
+        log::warn!(
+            "{}Attempted to auto-remove pinned backup `{}`; operation skipped.",
+            mock_prefix(mock_mode),
+            backup.formatted_name()
+        );
+    } else {
+        log::info!(
+            "{}Deleted{} backup `{}`",
+            mock_prefix(mock_mode),
+            if auto_removed { " old" } else { "" },
+            backup.formatted_name()
+        );
+    }
+    Ok(!bad_removal)
 }

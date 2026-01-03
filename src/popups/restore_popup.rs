@@ -11,7 +11,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier, Style, Stylize},
     symbols::border,
     text::{Line, Span},
     widgets::{Block, List, ListDirection, ListItem, ListState, Padding},
@@ -57,18 +57,31 @@ impl RestorePopup {
         }
     }
 
+    /// Create a popup command for the given restore command.
+    #[inline]
+    #[must_use]
+    pub const fn get_command(&self, command: RestorePopupCommand) -> PopupCommand {
+        PopupCommand::Restore(self.dest_char.1, command)
+    }
+
     /// Push a command to the popup's command list.
     #[inline]
-    pub fn push_command(&mut self, command: RestorePopupCommand) {
-        self.commands
-            .push(PopupCommand::Restore(self.dest_char.1, command));
+    pub fn push_command(&mut self, command: PopupCommand) {
+        self.commands.push(command);
     }
 
     /// Push a command to the popup's command list and close the popup.
     #[inline]
-    pub fn push_command_close(&mut self, command: RestorePopupCommand) {
+    pub fn push_command_close(&mut self, command: PopupCommand) {
         self.push_command(command);
         self.close = true;
+    }
+
+    /// If the source character is set, return `true`.
+    #[inline]
+    #[must_use]
+    pub const fn has_source_char(&self) -> bool {
+        self.source_char.is_some()
     }
 
     /// Get the source character, or the destination character if no source is set.
@@ -76,6 +89,13 @@ impl RestorePopup {
     #[must_use]
     pub fn source_char(&self) -> &CharacterWithIndex {
         self.source_char.as_ref().unwrap_or(&self.dest_char)
+    }
+
+    /// Get the backup at a specified index from the source character.
+    #[inline]
+    #[must_use]
+    pub fn get_backup(&self, index: usize) -> Option<&crate::wow::WowBackup> {
+        self.source_char().0.backups().get(index)
     }
 }
 
@@ -92,9 +112,15 @@ impl Popup for RestorePopup {
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(selected) = self.state.selected()
-                    && selected < self.source_char().0.backups().len()
+                    && let Some(backup) = self.get_backup(selected).cloned()
                 {
-                    self.push_command_close(RestorePopupCommand::RestoreBackup(selected));
+                    let command = self.get_command(RestorePopupCommand::RestoreBackup(selected));
+                    let start_span =
+                        Span::from(format!("Restore backup `{}` to ", backup.formatted_name()));
+                    let dest_char_span = self.dest_char.0.display_span(true).bold();
+                    self.push_command_close(
+                        command.with_confirm_and_line(Line::from(vec![start_span, dest_char_span])),
+                    );
                 }
             }
             KeyCode::Esc | KeyCode::Char('q' | 'Q') => {

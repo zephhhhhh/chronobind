@@ -1,7 +1,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Margin, Rect},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{List, ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget},
 };
 
@@ -10,8 +10,8 @@ use crate::palette::{SCROLL_DOWN_ICON, SCROLL_UP_ICON, highlight_symbol, highlig
 pub mod backup_manager_popup;
 pub mod backup_popup;
 pub mod branch_popup;
+pub mod confirm_popup;
 pub mod options_popup;
-pub mod paste_popup;
 pub mod restore_popup;
 
 /// Create a dual highlighted symbol for hovered items, for lines with multiple spans.
@@ -21,6 +21,15 @@ fn wrap_selection(mut spans: Vec<Span>, hovered: bool) -> Line {
         spans.push(Span::from(highlight_symbol_rev(hovered)));
     }
     Line::from(spans).centered()
+}
+
+/// Create a dual highlighted symbol for hovered items, for a provided line
+fn wrap_selection_text(mut line: Text<'static>, hovered: bool) -> Text<'static> {
+    for line in &mut line.lines {
+        line.spans.insert(0, Span::from(highlight_symbol(hovered)));
+        line.spans.push(Span::from(highlight_symbol_rev(hovered)));
+    }
+    line
 }
 
 /// Render a widget with an optional scrollbar if the content length exceeds the viewable area.
