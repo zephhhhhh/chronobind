@@ -16,6 +16,8 @@ use crate::popups::list_with_scrollbar;
 /// The character list widget displays the characters grouped by realm with collapsible headers.
 #[derive(Debug, Clone)]
 pub struct CharacterListWidget {
+    /// The branch display string (e.g., "Retail", "Classic", etc.)
+    pub branch_display: Option<String>,
     /// The list state for tracking selection
     pub state: ListState,
     /// Set of collapsed realm names
@@ -33,6 +35,7 @@ impl CharacterListWidget {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            branch_display: None,
             state: ListState::default(),
             collapsed_realms: BTreeSet::new(),
         }
@@ -176,10 +179,12 @@ impl CharacterListWidget {
         const PADDING: usize = 1;
         const INDENT: usize = 3;
 
-        let title = Line::styled(
-            " Characters ",
-            Style::default().add_modifier(Modifier::BOLD),
+        let title_content = self.branch_display.as_ref().map_or_else(
+            || " Characters ".to_string(),
+            |branch| format!(" Characters - {branch} "),
         );
+
+        let title = Line::styled(title_content, Style::default().add_modifier(Modifier::BOLD));
         let block = Block::bordered().title(title).border_set(border::THICK);
 
         let mut realms: BTreeMap<String, Vec<(usize, &Character)>> = BTreeMap::new();

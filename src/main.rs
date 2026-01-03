@@ -455,7 +455,7 @@ impl ChronoBindApp {
             .preferred_branch
             .clone()
             .unwrap_or_else(|| wow::WOW_RETAIL_IDENT.to_string());
-        app.load_branch_characters(&branch_to_load);
+        app.set_selected_branch(&branch_to_load);
 
         app
     }
@@ -538,15 +538,29 @@ impl ChronoBindApp {
         character.character.refresh_character_info(&install)
     }
 
+    /// Set the currently selected branch identifier, and load the appropriate characters.
+    pub fn set_selected_branch(&mut self, branch: &str) -> bool {
+        let Some(install) = self.find_wow_branch(branch).cloned() else {
+            return false;
+        };
+        self.character_list_widget.branch_display = Some(install.display_branch_name());
+        self.selected_branch = Some(branch.to_string());
+        let Some(characters) = self.load_branch_characters(branch) else {
+            return false;
+        };
+        self.characters = characters;
+        true
+    }
+
     /// Load the characters from a given `WoW` branch identifier.
-    pub fn load_branch_characters(&mut self, branch: &str) {
+    pub fn load_branch_characters(&mut self, branch: &str) -> Option<Vec<Character>> {
         self.characters.clear();
         self.character_list_widget.state.select(Some(0));
         self.copied_char = None;
 
         let Some(install) = self.find_wow_branch(branch) else {
             log::error!("No WoW installation found for branch: {branch}");
-            return;
+            return None;
         };
 
         let Some(characters) = install
@@ -557,11 +571,10 @@ impl ChronoBindApp {
                 "Failed to find characters in installation at {}",
                 install.install_path
             );
-            return;
+            return None;
         };
 
-        self.characters = characters;
-        self.selected_branch = Some(branch.to_string());
+        Some(characters)
     }
 }
 
@@ -665,7 +678,7 @@ impl ChronoBindApp {
             KeyCode::Char('r' | 'R') => {
                 log::debug!("Refreshing character list..");
                 if let Some(branch) = self.selected_branch.clone() {
-                    self.load_branch_characters(&branch);
+                    self.set_selected_branch(&branch);
                 } else {
                     log::warn!("No branch selected to refresh characters");
                 }
@@ -673,9 +686,6 @@ impl ChronoBindApp {
             }
             KeyCode::Char('`' | '¬' | '~') => {
                 self.console_widget.toggle_show();
-            }
-            KeyCode::F(2) => {
-                self.config.show_friendly_names = !self.config.show_friendly_names;
             }
             KeyCode::Char('t' | 'T') => {
                 self.show_branch_select_popup();
@@ -842,7 +852,7 @@ impl ChronoBindApp {
             },
             PopupAppCommand::Branch(BranchPopupCommand::SelectBranch(chosen_branch)) => {
                 log::info!("Switching to branch: {chosen_branch}");
-                self.load_branch_characters(chosen_branch);
+                self.set_selected_branch(chosen_branch);
             }
             PopupAppCommand::Options(OptionsPopupCommand::UpdateConfiguration(new_config)) => {
                 log::debug!("Updating application configuration.");
@@ -962,17 +972,13 @@ impl ChronoBindApp {
     /// Render the top title bar.
     #[allow(clippy::cast_possible_truncation)]
     fn top_bar(&self, area: Rect, buf: &mut Buffer) {
-        let branch_display = self.get_selected_branch_install().map_or_else(
-            || "No branch selected".to_string(),
-            wow::WowInstall::display_branch_name,
-        );
         let mock = if self.config.mock_mode {
             " [Safe]"
         } else {
             Default::default()
         };
         let line_style = Style::default().fg(Color::White);
-        let title_span = Span::styled(format!(" ChronoBind - {branch_display}{mock} "), line_style);
+        let title_span = Span::styled(format!(" ChronoBind {mock} "), line_style);
 
         let copy_display = if let Some(char_idx) = &self.copied_char
             && let Some(copied_char) = self.characters.get(*char_idx)
