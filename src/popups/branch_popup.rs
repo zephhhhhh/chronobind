@@ -9,7 +9,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Style, Stylize},
     symbols::border,
     text::Line,
     widgets::{Block, List, ListDirection, ListItem, ListState, Padding, StatefulWidget},
@@ -96,14 +96,11 @@ impl Popup for BranchPopup {
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        // Get title styling based on context (character if applicable)
-        let title_style = Style::default().add_modifier(Modifier::BOLD);
-
         let block = Block::bordered()
-            .title(Line::styled(" Select a WoW Branch ", title_style))
+            .title(Line::from(" Select a WoW Branch ").bold())
             .border_set(border::ROUNDED)
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Black))
+            .bg(STD_BG)
             .padding(Padding::symmetric(1, 0));
 
         let items = self
@@ -126,8 +123,8 @@ impl Popup for BranchPopup {
 
         let list_view = List::new(items)
             .block(block)
-            .style(Style::new().white())
-            .highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG))
+            .fg(STD_FG)
+            .highlight_style(Style::new().bold().bg(HOVER_BG))
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 

@@ -10,7 +10,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Alignment, Margin, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Style, Stylize},
     symbols::border,
     text::Line,
     widgets::{
@@ -100,12 +100,11 @@ impl Popup for ConfirmationPopup {
 
         // Get title styling based on context (character if applicable)
         let block = Block::bordered()
-            .title(Line::from(" Are you sure? ").bold())
-            .title_style(Style::default().fg(Color::Reset).bold())
+            .title(Line::from(" Are you sure? ").bold().fg(STD_FG))
             .border_set(border::ROUNDED)
             .border_style(Style::default().fg(LOG_WARN_FG))
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Black))
+            .bg(STD_BG)
             .padding(Padding::symmetric(1, 0));
 
         let selected_idx = self.state.selected().unwrap_or(0);
@@ -132,8 +131,8 @@ impl Popup for ConfirmationPopup {
 
         let list_view = List::new(items)
             .block(block)
-            .style(Style::new().white())
-            .highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG))
+            .fg(STD_FG)
+            .highlight_style(Style::new().bold().bg(HOVER_BG))
             .direction(ListDirection::TopToBottom)
             .repeat_highlight_symbol(true);
 

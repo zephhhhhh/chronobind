@@ -10,14 +10,15 @@ mod colours {
     // Definitions..
     const DARK_SLATE: Color = Color::Rgb(22, 31, 31);
     const SELECTED_GREEN: Color = Color::Rgb(37, 128, 48);
-
     const SPECIAL_WHITE: Color = Color::Rgb(205, 232, 250);
 
-    // UI Colours..
+    // UI colours..
     pub const HOVER_BG: Color = DARK_SLATE;
     pub const SELECTED_FG: Color = SELECTED_GREEN;
     pub const SPECIAL_FG: Color = SPECIAL_WHITE;
+
     pub const STD_FG: Color = Color::White;
+    pub const STD_BG: Color = Color::Black;
 
     // Log level colours..
     pub const LOG_ERROR_FG: Color = Color::Rgb(230, 0, 0);
@@ -26,7 +27,7 @@ mod colours {
     pub const LOG_DEBUG_FG: Color = Color::Rgb(77, 166, 235);
     pub const LOG_TRACE_FG: Color = Color::Rgb(204, 204, 204);
 
-    // WoW Class Colours..
+    // WoW class colours..
     pub const UNKNOWN_COL: Color = Color::Rgb(225, 225, 225);
     pub const WARRIOR_COL: Color = Color::Rgb(198, 155, 109);
     pub const PALADIN_COL: Color = Color::Rgb(244, 140, 186);
@@ -41,6 +42,9 @@ mod colours {
     pub const DRUID_COL: Color = Color::Rgb(255, 124, 10);
     pub const DEMONHUNTER_COL: Color = Color::Rgb(163, 48, 201);
     pub const EVOKER_COL: Color = Color::Rgb(51, 147, 127);
+
+    // Dedication colours..
+    pub const HEART_FG: Color = Color::Rgb(186, 117, 170);
 }
 
 #[cfg(not(feature = "better-colours"))]
@@ -51,7 +55,9 @@ mod colours {
     pub const HOVER_BG: Color = Color::Indexed(235);
     pub const SELECTED_FG: Color = Color::Indexed(29);
     pub const SPECIAL_FG: Color = Color::Indexed(189);
+
     pub const STD_FG: Color = Color::White;
+    pub const STD_BG: Color = Color::Black;
 
     // Log level colours..
     pub const LOG_ERROR_FG: Color = Color::Red;
@@ -75,6 +81,9 @@ mod colours {
     pub const DRUID_COL: Color = Color::Indexed(208);
     pub const DEMONHUNTER_COL: Color = Color::Indexed(134);
     pub const EVOKER_COL: Color = Color::Indexed(66);
+
+    // Dedication colours..
+    pub const HEART_FG: Color = Color::Indexed(139);
 }
 
 // Icons, formatting, etc..

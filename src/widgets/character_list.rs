@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Style, Stylize};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState};
@@ -184,7 +184,7 @@ impl CharacterListWidget {
             |branch| format!(" Characters - {branch} "),
         );
 
-        let title = Line::styled(title_content, Style::default().add_modifier(Modifier::BOLD));
+        let title = Line::from(title_content).bold();
         let block = Block::bordered().title(title).border_set(border::THICK);
 
         let mut realms: BTreeMap<String, Vec<(usize, &Character)>> = BTreeMap::new();
@@ -201,24 +201,18 @@ impl CharacterListWidget {
             // Add realm header
             let is_collapsed = self.collapsed_realms.contains(realm);
             let hovered = self.state.selected().is_some_and(|sel| sel == items.len());
-            let header_style = Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(STD_FG)
-                .add_modifier(Modifier::DIM);
             let content = format!(
                 "{pad}{} {}[{realm}]",
                 expandable_icon(is_collapsed),
                 highlight_symbol(hovered),
                 pad = indentation(PADDING)
             );
-            items.push(ListItem::new(content).style(header_style));
+            items.push(ListItem::new(content).bold().fg(STD_FG).dim());
 
             // Add characters in this realm (only if not collapsed)
             if !is_collapsed {
                 for (_, character) in chars {
                     let hovered = self.state.selected().is_some_and(|sel| sel == items.len());
-                    let style = Style::default();
-
                     let files_selected = character.any_file_selected();
 
                     let ui_span_text = format!(
@@ -227,9 +221,9 @@ impl CharacterListWidget {
                         pad = indentation(PADDING + INDENT)
                     );
                     let ui_span_source = if files_selected {
-                        Span::from(format!("{ui_span_text}• ")).style(style.fg(SELECTED_FG))
+                        Span::from(format!("{ui_span_text}• ")).fg(SELECTED_FG)
                     } else {
-                        Span::from(ui_span_text).style(style)
+                        Span::from(ui_span_text)
                     };
 
                     let main_span = character.display_span(false);
@@ -240,8 +234,8 @@ impl CharacterListWidget {
 
         let list_view = List::new(items)
             .block(block)
-            .style(Style::new().white())
-            .highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG))
+            .fg(STD_FG)
+            .highlight_style(Style::new().bold().bg(HOVER_BG))
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 

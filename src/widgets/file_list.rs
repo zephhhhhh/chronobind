@@ -1,7 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Style, Stylize};
 use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState, Paragraph, Widget};
@@ -203,7 +203,7 @@ impl FileListWidget {
         .style(style);
 
         if config.show_friendly_names && has_friendly {
-            style = style.add_modifier(Modifier::ITALIC);
+            style = style.italic();
         }
 
         let file_name = file.display_name(config.show_friendly_names);
@@ -229,7 +229,7 @@ impl FileListWidget {
         let colour = if all_addon_file_selected && !no_addon_files {
             SELECTED_FG
         } else if any_addon_file_selected && !no_addon_files {
-            Color::Yellow
+            LOG_WARN_FG
         } else {
             STD_FG
         };
@@ -242,12 +242,7 @@ impl FileListWidget {
             pad = indentation(Self::PADDING)
         );
 
-        let dropdown_style = Style::default()
-            .fg(colour)
-            .add_modifier(Modifier::BOLD)
-            .add_modifier(Modifier::ITALIC);
-
-        ListItem::new(Line::from(content).style(dropdown_style))
+        ListItem::new(Line::from(content).fg(colour).bold().italic())
     }
 
     /// Render an addon file row item
@@ -281,7 +276,7 @@ impl FileListWidget {
         .style(style);
 
         if config.show_friendly_names && has_friendly {
-            style = style.add_modifier(Modifier::ITALIC);
+            style = style.italic();
         }
 
         let file_name = file.display_stem(config.show_friendly_names);
@@ -303,10 +298,9 @@ impl FileListWidget {
         config: &FileListConfig,
     ) {
         let title = character.map_or_else(
-            || Line::styled(" Files ", Style::default().add_modifier(Modifier::BOLD)),
+            || Line::from(" Files ").bold(),
             |character| {
-                let style = Style::default().add_modifier(Modifier::BOLD);
-                let files_span = Span::from(" Files - ").style(style);
+                let files_span = Span::from(" Files - ").bold();
                 let char_span = character.display_span(true);
                 Line::from(vec![files_span, char_span, Span::from(" ")])
             },
@@ -348,13 +342,12 @@ impl FileListWidget {
 
         let mut list_view = List::new(items)
             .block(block)
-            .style(Style::new().white())
+            .fg(STD_FG)
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 
         if show_highlight {
-            list_view =
-                list_view.highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG));
+            list_view = list_view.highlight_style(Style::new().bold().bg(HOVER_BG));
         }
 
         list_with_scrollbar(list_view, area, buf, &mut self.state);

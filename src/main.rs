@@ -24,11 +24,12 @@ use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::ChronoBindAppConfig;
+use crate::palette::{STD_BG, STD_FG};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
@@ -793,7 +794,7 @@ impl ChronoBindApp {
                             .len();
                         let plural = if files_to_paste == 1 { "" } else { "s" };
                         let prompt = Span::from(format!("Paste {files_to_paste} file{plural} to "));
-                        let char_name = dest_char.display_span(true).add_modifier(Modifier::BOLD);
+                        let char_name = dest_char.display_span(true).bold();
                         self.handle_popup_command(
                             &PopupAppCommand::Paste(target_char_idx)
                                 .with_confirm_and_line(Line::from(vec![prompt, char_name])),
@@ -1036,7 +1037,7 @@ impl ChronoBindApp {
         } else {
             Default::default()
         };
-        let line_style = Style::default().fg(Color::White);
+        let line_style = Style::default().fg(STD_FG);
         let title_span = Span::styled(format!(" ChronoBind {mock}"), line_style);
 
         let copy_display = if let Some(char_idx) = &self.copied_char
@@ -1047,7 +1048,8 @@ impl ChronoBindApp {
                 copied_char.display_span(true),
                 Span::from(format!(" ({})", copied_char.total_selected_count())),
             ])
-            .style(Style::default().bg(Color::Black).fg(Color::White))
+            .bg(STD_BG)
+            .fg(STD_FG)
         } else {
             Line::from("")
         };
@@ -1098,7 +1100,7 @@ impl ChronoBindApp {
             }
         };
 
-        let line_style = Style::default().bg(Color::White).fg(Color::Black);
+        let line_style = Style::default().bg(STD_FG).fg(STD_BG);
 
         let final_text = if self.input_mode == InputMode::Popup || self.console_widget.is_visible()
         {
@@ -1114,8 +1116,7 @@ impl ChronoBindApp {
                 .join(BOTTOM_BAR_SEP)
         };
 
-        let status_line =
-            Line::from(Span::styled(format!(" {final_text}"), Style::default())).style(line_style);
+        let status_line = Line::styled(format!(" {final_text}"), line_style);
         status_line.render(area, buf);
     }
 }

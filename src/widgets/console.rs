@@ -1,7 +1,7 @@
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Padding, Paragraph, Widget, Wrap};
 
@@ -73,13 +73,9 @@ impl ConsoleWidget {
 
     /// Render the console output panel.
     pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
-        let title = Line::styled(
-            " Console Output ",
-            Style::default().add_modifier(Modifier::BOLD),
-        );
+        let title = Line::from(" Console Output ").bold();
         let block = Block::bordered()
             .title(title)
-            .style(Style::default())
             .border_set(ratatui::symbols::border::THICK)
             .padding(Padding::symmetric(1, 0));
 
@@ -96,14 +92,13 @@ impl ConsoleWidget {
                 .take(visible_lines)
                 .map(|log| {
                     let color = log_level_colour(log.level());
-                    Line::from(log.content().to_string()).style(Style::default().fg(color))
+                    Line::from(log.content().to_string()).fg(color)
                 })
                 .collect()
         });
 
-        let log_text = log_lines.unwrap_or_else(|| {
-            vec![Line::from("Failed to retrieve logs").style(Style::default().fg(Color::Red))]
-        });
+        let log_text = log_lines
+            .unwrap_or_else(|| vec![Line::from("Failed to retrieve logs").fg(LOG_ERROR_FG)]);
 
         Paragraph::new(log_text)
             .wrap(Wrap { trim: false })

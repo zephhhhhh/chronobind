@@ -10,7 +10,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Style, Stylize},
     symbols::border,
     text::{Line, Span},
     widgets::{Block, List, ListDirection, ListState, Padding, StatefulWidget, Widget},
@@ -121,7 +121,7 @@ impl OptionsPopup {
     fn toggle_option(title: &str, selected: bool, hovered: bool) -> Line<'_> {
         let colour = if selected { SELECTED_FG } else { STD_FG };
         let content = format!("{} {}", checkbox(selected), highlight_str(title, hovered));
-        Line::from(content).style(Style::default().fg(colour))
+        Line::from(content).fg(colour)
     }
 
     /// Create a line representing the maximum automatic backups option.
@@ -175,8 +175,8 @@ impl OptionsPopup {
         ];
 
         let list_view = List::new(items)
-            .style(Style::new().white())
-            .highlight_style(Style::new().add_modifier(Modifier::BOLD).bg(HOVER_BG))
+            .fg(STD_FG)
+            .highlight_style(Style::new().bold().bg(HOVER_BG))
             .direction(ListDirection::TopToBottom);
 
         StatefulWidget::render(list_view, area, buf, &mut self.state);
@@ -185,14 +185,10 @@ impl OptionsPopup {
     /// Draw the dedication credits at the bottom of the popup.
     fn draw_credits(area: Rect, buf: &mut Buffer) {
         const MY_LOVE: &str = "Larissa";
-        const HEART_FG: Color = Color::Rgb(186, 117, 170);
 
         let line = Line::from(vec![
             Span::from("Dedicated to "),
-            Span::from(MY_LOVE)
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::ITALIC)
-                .fg(HEART_FG),
+            Span::from(MY_LOVE).bold().italic().fg(HEART_FG),
             Span::from(" <3").fg(HEART_FG),
         ])
         .right_aligned();
@@ -335,15 +331,13 @@ impl Popup for OptionsPopup {
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        let title_style = Style::default()
-            .add_modifier(Modifier::BOLD)
-            .fg(Color::White);
+        let title_style = Style::default().bold().fg(STD_FG);
         let block = Block::bordered()
             .title(Line::styled(" ChronoBind Options ", title_style))
             .border_set(border::ROUNDED)
             .padding(Padding::symmetric(1, 0))
             .title_alignment(Alignment::Center)
-            .style(Style::default().bg(Color::Black));
+            .bg(STD_BG);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
