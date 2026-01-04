@@ -11,20 +11,20 @@ pub mod ui;
 pub mod widgets;
 pub mod wow;
 
+use itertools::Itertools;
+use ratatui::buffer::Buffer;
 use ratatui::widgets::Widget;
-use widgets::character_list::{CharacterListWidget, NavigationAction};
+use widgets::character_list::NavigationAction;
 use widgets::console::ConsoleWidget;
-use widgets::file_list::{FileListConfig, FileListWidget, FileSelectionAction};
+use widgets::file_list::FileSelectionAction;
 
 use std::time::Duration;
 
 use color_eyre::Result;
 use color_eyre::eyre::Context;
-use itertools::Itertools;
-use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Style, Stylize};
+use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
@@ -37,7 +37,9 @@ use crate::popups::confirm_popup::{CONFIRM_POPUP_ID, ConfirmationPopup};
 use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
 use crate::ui::messages::{AppMessage, ConfirmActionText, PopupMessage};
-use crate::ui::{Character, CharacterWithIndex, CharacterWithInstall};
+use crate::ui::{
+    Character, CharacterWithIndex, CharacterWithInstall, KeyCodeExt, main_character_ui::MainCharacterUI,
+};
 use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::WowBackup;
 
@@ -80,8 +82,8 @@ fn set_console_window_title(title: &str) -> crate::files::AnyResult<()> {
 }
 
 /// Different input modes for the application.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-enum InputMode {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InputMode {
     /// Navigating the character list.
     #[default]
     Navigation,
@@ -112,13 +114,10 @@ pub struct ChronoBindApp {
     /// Current input mode of the application.
     input_mode: InputMode,
 
+    /// Main UI drawing and widgets.
+    main_ui: MainCharacterUI,
     /// Console output widget.
     console_widget: ConsoleWidget,
-
-    /// Character list widget for displaying characters.
-    character_list_widget: CharacterListWidget,
-    /// File list widget for displaying character files.
-    file_list_widget: FileListWidget,
 
     /// The previous input mode before opening a popup.
     popup_previous_input: Option<InputMode>,
@@ -160,9 +159,8 @@ impl ChronoBindApp {
 
             input_mode: InputMode::Navigation,
 
+            main_ui: MainCharacterUI::new(),
             console_widget: ConsoleWidget::new(),
-            character_list_widget: CharacterListWidget::new(),
-            file_list_widget: FileListWidget::new(),
 
             popup_previous_input: None,
             popup: None,
@@ -194,12 +192,13 @@ impl ChronoBindApp {
     #[inline]
     #[must_use]
     pub fn selected_index(&self) -> usize {
-        self.character_list_widget.selected_index()
+        self.main_ui.character_list_widget.selected_index()
     }
 
     /// Get the actual character index from `selected_index`, accounting for grouped display
     fn get_selected_character_index(&self) -> Option<usize> {
-        self.character_list_widget
+        self.main_ui
+            .character_list_widget
             .get_selected_character_index(&self.characters)
     }
 
@@ -262,7 +261,7 @@ impl ChronoBindApp {
         let Some(install) = self.find_wow_branch(branch).cloned() else {
             return false;
         };
-        self.character_list_widget.branch_display = Some(install.display_branch_name());
+        self.main_ui.character_list_widget.branch_display = Some(install.display_branch_name());
         self.selected_branch = Some(branch.to_string());
         let Some(characters) = self.load_branch_characters(branch) else {
             return false;
@@ -274,7 +273,7 @@ impl ChronoBindApp {
     /// Load the characters from a given `WoW` branch identifier.
     pub fn load_branch_characters(&mut self, branch: &str) -> Option<Vec<Character>> {
         self.characters.clear();
-        self.character_list_widget.state.select(Some(0));
+        self.main_ui.character_list_widget.state.select(Some(0));
         self.copied_char = None;
 
         let Some(install) = self.find_wow_branch(branch) else {
@@ -341,33 +340,10 @@ impl ChronoBindApp {
         Ok(())
     }
 
-    /// Draw the entire application UI.
-    fn draw(&mut self, frame: &mut Frame) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Fill(1),
-                Constraint::Length(1),
-            ])
-            .split(frame.area());
-
-        self.top_bar(chunks[0], frame.buffer_mut());
-        self.main_screen(chunks[1], frame.buffer_mut());
-        self.bottom_bar(chunks[2], frame.buffer_mut());
-
-        if let Some(popup) = &mut self.popup {
-            popup.render(frame);
-        }
-        if let Some(confirm_popup) = &mut self.confirm_popup {
-            confirm_popup.render(frame);
-        }
-    }
-
     /// Handle key down events.
     fn on_key_down(&mut self, key: &KeyEvent) {
-        match key.code {
-            KeyCode::Char('r' | 'R') => {
+        match key.keycode_lower() {
+            KeyCode::Char('r') => {
                 log::debug!("Refreshing character list..");
                 if let Some(branch) = self.selected_branch.clone() {
                     self.set_selected_branch(&branch);
@@ -379,13 +355,13 @@ impl ChronoBindApp {
             KeyCode::Char('`' | '¬' | '~') => {
                 self.console_widget.toggle_show();
             }
-            KeyCode::Char('t' | 'T') => {
+            KeyCode::Char('t') => {
                 self.show_branch_select_popup();
             }
-            KeyCode::Char('o' | 'O') => {
+            KeyCode::Char('o') => {
                 self.show_options_popup();
             }
-            KeyCode::Char('q' | 'Q') => {
+            KeyCode::Char('q') => {
                 log::debug!("Quit requested");
                 self.should_exit = true;
             }
@@ -406,6 +382,7 @@ impl ChronoBindApp {
     /// Handle commands from the character navigation widget.
     fn handle_char_navigation_commands(&mut self, key: &KeyEvent) {
         let action = self
+            .main_ui
             .character_list_widget
             .handle_navigation_input(key, &self.characters);
 
@@ -413,7 +390,7 @@ impl ChronoBindApp {
             NavigationAction::None => {}
             NavigationAction::EnterFileSelection => {
                 self.input_mode = InputMode::FileSelection;
-                self.file_list_widget.state.select(Some(0));
+                self.main_ui.file_list_widget.state.select(Some(0));
             }
             NavigationAction::ShowBackup(char_idx) => {
                 self.show_backup_popup(char_idx);
@@ -464,6 +441,7 @@ impl ChronoBindApp {
 
         if let Some(character) = character {
             let action = self
+                .main_ui
                 .file_list_widget
                 .handle_file_selection_input(key, character);
 
@@ -622,61 +600,50 @@ impl ChronoBindApp {
     }
 }
 
-// Ui..
+// Drawing..
 impl ChronoBindApp {
-    /// Render the main screen UI.
-    fn main_screen(&mut self, area: Rect, buf: &mut Buffer) {
-        if self.console_widget.is_visible() {
-            // Split into three sections: characters, files, and debug
-            let main_chunks = Layout::default()
+    /// Draw the entire application UI.
+    fn draw(&mut self, frame: &mut Frame) {
+        let main_layout_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // Top bar
+                Constraint::Min(0),    // Main UI
+                Constraint::Length(1), // Bottom bar
+            ])
+            .split(frame.area());
+
+        self.top_bar(main_layout_chunks[0], frame.buffer_mut());
+        self.draw_main_ui(main_layout_chunks[1], frame.buffer_mut());
+        self.bottom_bar(main_layout_chunks[2], frame.buffer_mut());
+
+        if let Some(popup) = &mut self.popup {
+            popup.render(frame);
+        }
+        if let Some(confirm_popup) = &mut self.confirm_popup {
+            confirm_popup.render(frame);
+        }
+    }
+
+    /// Draw the main visible ui area.
+    fn draw_main_ui(&mut self, area: Rect, buf: &mut Buffer) {
+        let main_area = if self.console_widget.is_visible() {
+            let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
                 .split(area);
-
-            let top_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-                .split(main_chunks[0]);
-
-            self.character_list(top_chunks[0], buf);
-            self.file_list(top_chunks[1], buf);
-            self.console_panel(main_chunks[1], buf);
-
-            return;
-        }
-
-        // Split the main screen into left and right panels
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .split(area);
-
-        self.character_list(chunks[0], buf);
-        self.file_list(chunks[1], buf);
-    }
-
-    /// Render the character list panel.
-    fn character_list(&mut self, area: Rect, buf: &mut Buffer) {
-        self.character_list_widget
-            .render(area, buf, &self.characters);
-    }
-
-    /// Render the file list panel.
-    fn file_list(&mut self, area: Rect, buf: &mut Buffer) {
-        let char_index = self.get_selected_character_index();
-        let selected_character = char_index.and_then(|idx| self.characters.get(idx));
-        let show_highlight = self.input_mode == InputMode::FileSelection;
-        let config = FileListConfig {
-            show_friendly_names: self.config.show_friendly_names,
+            self.console_widget.render(chunks[1], buf);
+            chunks[0]
+        } else {
+            area
         };
-
-        self.file_list_widget
-            .render(area, buf, selected_character, show_highlight, &config);
-    }
-
-    /// Render the console output panel.
-    fn console_panel(&mut self, area: Rect, buf: &mut Buffer) {
-        self.console_widget.render(area, buf);
+        self.main_ui.draw(
+            main_area,
+            buf,
+            &self.characters,
+            self.input_mode,
+            &self.config,
+        );
     }
 
     /// Render the top title bar.
@@ -687,8 +654,7 @@ impl ChronoBindApp {
         } else {
             Default::default()
         };
-        let line_style = Style::default().fg(STD_FG);
-        let title_span = Span::styled(format!(" ChronoBind {mock}"), line_style);
+        let title_span = Span::from(format!(" ChronoBind {mock}")).fg(STD_FG);
 
         let copy_display = if let Some(char_idx) = &self.copied_char
             && let Some(copied_char) = self.characters.get(*char_idx)
@@ -750,8 +716,6 @@ impl ChronoBindApp {
             }
         };
 
-        let line_style = Style::default().bg(STD_FG).fg(STD_BG);
-
         let final_text = if self.input_mode == InputMode::Popup || self.console_widget.is_visible()
         {
             status_elements
@@ -766,7 +730,7 @@ impl ChronoBindApp {
                 .join(BOTTOM_BAR_SEP)
         };
 
-        let status_line = Line::styled(format!(" {final_text}"), line_style);
+        let status_line = Line::from(format!(" {final_text}")).fg(STD_BG).bg(STD_FG);
         status_line.render(area, buf);
     }
 }

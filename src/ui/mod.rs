@@ -1,5 +1,5 @@
 pub mod character;
-pub mod main_ui;
+pub mod main_character_ui;
 pub mod messages;
 
 pub use character::{Character, CharacterIndex, CharacterWithIndex, CharacterWithInstall};
