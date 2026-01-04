@@ -350,13 +350,13 @@ impl Popup for OptionsPopup {
     }
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         let mut options = vec!["↑/↓"];
-        let selected_index = self.state.selected().unwrap_or(0);
+        let selected_index = self.selected_index();
         if selected_index == Self::MAX_AUTO_BACKUPS_IDX
             || selected_index == Self::PREFERRED_BRANCH_IDX
         {
             options.push("←/→: Adjust");
         } else {
-            options.push("↵/Space: Toggle");
+            options.push("↵/→/Space: Toggle");
         }
         options.push("Esc: Close");
         Some(options)

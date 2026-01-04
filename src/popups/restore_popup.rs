@@ -136,6 +136,7 @@ impl Popup for RestorePopup {
         ];
         let block = popup_block(title_spans);
 
+        let selected_index = self.state.selected().unwrap_or(0);
         let items = self
             .source_char()
             .0
@@ -143,7 +144,6 @@ impl Popup for RestorePopup {
             .iter()
             .enumerate()
             .map(|(i, backup)| {
-                let hovered = i == self.state.selected().unwrap_or(0);
                 let content = format!(
                     "{}{} {}{}",
                     pinned_string(backup.is_pinned),
@@ -151,7 +151,7 @@ impl Popup for RestorePopup {
                     display_backup_time(&backup.timestamp),
                     if backup.is_paste { " (Auto)" } else { "" },
                 );
-                let line = Line::from(dual_highlight_str(content, hovered)).centered();
+                let line = Line::from(dual_highlight_str(content, i == selected_index)).centered();
                 ListItem::new(line)
             })
             .collect_vec();

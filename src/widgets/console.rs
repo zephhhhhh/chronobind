@@ -8,6 +8,7 @@ use ratatui::widgets::{Block, Padding, Paragraph, Widget, Wrap};
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::tui_log;
+use crate::ui::KeyCodeExt;
 
 /// Widget responsible for displaying and controlling the console output panel.
 #[derive(Debug, Default)]
@@ -45,14 +46,16 @@ impl ConsoleWidget {
     }
 
     /// Handle key input when the console panel is active.
-    pub const fn handle_input(&mut self, key: &KeyEvent) {
+    pub fn handle_input(&mut self, key: &KeyEvent) {
+        const SPEED_MULTIPLIER: usize = 3;
+
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let speed_multiplier = if ctrl { 3 } else { 1 };
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
+        let speed_multiplier = if ctrl { SPEED_MULTIPLIER } else { 1 };
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
                 self.scroll_offset = self.scroll_offset.saturating_add(speed_multiplier);
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
+            KeyCode::Down | KeyCode::Char('s') => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(speed_multiplier);
             }
             KeyCode::PageUp => {

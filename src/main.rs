@@ -38,7 +38,8 @@ use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
 use crate::ui::messages::{AppMessage, ConfirmActionText, PopupMessage};
 use crate::ui::{
-    Character, CharacterWithIndex, CharacterWithInstall, KeyCodeExt, main_character_ui::MainCharacterUI,
+    Character, CharacterWithIndex, CharacterWithInstall, KeyCodeExt,
+    main_character_ui::MainCharacterUI,
 };
 use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::WowBackup;

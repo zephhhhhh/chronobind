@@ -8,7 +8,7 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState};
 
-use crate::ui::Character;
+use crate::ui::{Character, KeyCodeExt};
 
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
@@ -108,17 +108,13 @@ impl CharacterListWidget {
             }
         }
 
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                if let Some(selected) = self.state.selected() {
-                    self.state.select(Some(selected.saturating_sub(1)));
-                }
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state.select_previous();
                 NavigationAction::None
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                if let Some(selected) = self.state.selected() {
-                    self.state.select(Some(selected.saturating_add(1)));
-                }
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state.select_next();
                 NavigationAction::None
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
@@ -141,7 +137,7 @@ impl CharacterListWidget {
                     NavigationAction::None
                 }
             }
-            KeyCode::Char('d' | 'D') | KeyCode::Right => {
+            KeyCode::Char('d') | KeyCode::Right => {
                 if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
                     && !*is_header
                 {
@@ -151,7 +147,7 @@ impl CharacterListWidget {
                     NavigationAction::None
                 }
             }
-            KeyCode::Char('b' | 'B') => {
+            KeyCode::Char('b') => {
                 if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
                     && !*is_header
                     && let Some(char_idx) = self.get_selected_character_index(characters)
@@ -161,12 +157,12 @@ impl CharacterListWidget {
                     NavigationAction::None
                 }
             }
-            KeyCode::Char('c' | 'C') => self
+            KeyCode::Char('c') => self
                 .get_selected_character_index(characters)
                 .map_or(NavigationAction::None, |char_idx| {
                     NavigationAction::Copy(char_idx)
                 }),
-            KeyCode::Char('v' | 'V') => self
+            KeyCode::Char('v') => self
                 .get_selected_character_index(characters)
                 .map_or(NavigationAction::None, |target_char_idx| {
                     NavigationAction::Paste(target_char_idx)

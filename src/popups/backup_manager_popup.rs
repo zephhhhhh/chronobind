@@ -121,6 +121,7 @@ impl Popup for BackupManagerPopup {
             Span::from(" "),
         ]);
 
+        let selected_index = self.state.selected().unwrap_or(0);
         let items = self
             .character
             .0
@@ -128,7 +129,6 @@ impl Popup for BackupManagerPopup {
             .iter()
             .enumerate()
             .map(|(i, backup)| {
-                let hovered = i == self.state.selected().unwrap_or(0);
                 let content = format!(
                     "{}{} {}{}",
                     pinned_string(backup.is_pinned),
@@ -136,7 +136,7 @@ impl Popup for BackupManagerPopup {
                     display_backup_time(&backup.timestamp),
                     if backup.is_paste { " (Auto)" } else { "" },
                 );
-                let line = Line::from(dual_highlight_str(content, hovered)).centered();
+                let line = Line::from(dual_highlight_str(content, i == selected_index)).centered();
                 ListItem::new(line)
             })
             .collect_vec();

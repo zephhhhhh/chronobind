@@ -95,12 +95,12 @@ impl Popup for BranchPopup {
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         let block = popup_block(" Select a WoW Branch ");
 
+        let selected_index = self.state.selected().unwrap_or(0);
         let items = self
             .branches
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let hovered = i == self.state.selected().unwrap_or(0);
                 let content = if let Some(selected_branch) = &self.current_branch
                     && item.branch_ident == *selected_branch
                 {
@@ -108,7 +108,7 @@ impl Popup for BranchPopup {
                 } else {
                     item.display_branch_name()
                 };
-                let line = Line::from(dual_highlight_str(content, hovered)).centered();
+                let line = Line::from(dual_highlight_str(content, i == selected_index)).centered();
                 ListItem::new(line)
             })
             .collect::<Vec<ListItem>>();
