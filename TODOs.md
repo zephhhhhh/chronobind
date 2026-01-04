@@ -8,6 +8,7 @@
 - Import/Export backups (to enable sending profiles between users)
     - Drag and drop backups onto the window for this feature also
 - File selection when restoring backup to only restore specific files
+- Add configuration option to force override the auto determined better symbols support for other terminals.
 
 ## Low Priority / Maybes
 - (Maybe) Add either API support or an in-game addon that allows better retrieval of character classes
