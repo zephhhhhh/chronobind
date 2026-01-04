@@ -231,6 +231,7 @@ dependencies = [
  "ratatui",
  "ron",
  "serde",
+ "strum",
  "zip",
 ]
 
