@@ -7,6 +7,7 @@ pub mod files;
 pub mod palette;
 pub mod popups;
 pub mod tui_log;
+pub mod ui;
 pub mod widgets;
 pub mod wow;
 
@@ -15,7 +16,6 @@ use widgets::character_list::{CharacterListWidget, NavigationAction};
 use widgets::console::ConsoleWidget;
 use widgets::file_list::{FileListConfig, FileListWidget, FileSelectionAction};
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -24,8 +24,8 @@ use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style, Stylize};
-use ratatui::text::{Line, Span, Text};
+use ratatui::style::{Style, Stylize};
+use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::ChronoBindAppConfig;
@@ -36,8 +36,10 @@ use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
 use crate::popups::confirm_popup::{CONFIRM_POPUP_ID, ConfirmationPopup};
 use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
+use crate::ui::messages::{AppMessage, ConfirmActionText, PopupMessage};
+use crate::ui::{Character, CharacterWithIndex, CharacterWithInstall};
 use crate::widgets::popup::{Popup, PopupPtr};
-use crate::wow::{WowBackup, WowCharacter};
+use crate::wow::WowBackup;
 
 /// Entry point..
 fn main() -> Result<()> {
@@ -77,358 +79,6 @@ fn set_console_window_title(title: &str) -> crate::files::AnyResult<()> {
     Ok(())
 }
 
-/// Type alias for a character index.
-pub type CharacterIndex = usize;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ConfirmActionText {
-    Text(Text<'static>),
-    Line(Line<'static>),
-    Span(Span<'static>),
-    Spans(Vec<Span<'static>>),
-}
-
-impl ConfirmActionText {
-    /// Convert to a `Text` representation.
-    #[must_use]
-    pub fn to_text(&self) -> Text<'static> {
-        match self {
-            Self::Text(text) => text.clone(),
-            Self::Line(line) => Text::from(line.clone()),
-            Self::Span(span) => Text::from(span.clone()),
-            Self::Spans(spans) => Text::from(Line::from(spans.clone())),
-        }
-    }
-}
-
-impl From<Text<'static>> for ConfirmActionText {
-    fn from(text: Text<'static>) -> Self {
-        Self::Text(text)
-    }
-}
-
-impl From<Line<'static>> for ConfirmActionText {
-    fn from(line: Line<'static>) -> Self {
-        Self::Line(line)
-    }
-}
-
-impl From<Span<'static>> for ConfirmActionText {
-    fn from(span: Span<'static>) -> Self {
-        Self::Span(span)
-    }
-}
-
-impl From<Vec<Span<'static>>> for ConfirmActionText {
-    fn from(spans: Vec<Span<'static>>) -> Self {
-        Self::Spans(spans)
-    }
-}
-
-/// Different commands that can be issued from a popup.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum PopupAppCommand {
-    /// Commands from the backup popup.
-    Backup(CharacterIndex, BackupPopupCommand),
-    /// Commands from the restore from backup popup.
-    Restore(CharacterIndex, RestorePopupCommand),
-    /// Paste from the copied character to the provided target character.
-    Paste(CharacterIndex),
-    /// Commands from the branch selection popup.
-    Branch(BranchPopupCommand),
-    /// Commands from the options popup.
-    Options(OptionsPopupCommand),
-    /// Commands from the backup manager popup.
-    BackupManager(CharacterIndex, BackupManagerPopupCommand),
-    /// Generic confirm action.
-    /// Opens a confirmation popup for the given action.
-    ConfirmAction(Box<Self>, Option<ConfirmActionText>),
-}
-
-impl PopupAppCommand {
-    /// Wrap the command in a confirmation action.
-    #[inline]
-    #[must_use]
-    pub fn with_confirm(self) -> Self {
-        Self::ConfirmAction(Box::new(self), None)
-    }
-
-    /// Wrap the command in a confirmation action, and a custom line to display as the confirm action.
-    #[inline]
-    #[must_use]
-    pub fn with_confirm_and_line(self, action_line: impl Into<ConfirmActionText>) -> Self {
-        Self::ConfirmAction(Box::new(self), Some(action_line.into()))
-    }
-}
-
-/// Different commands that can be issued to a popup from the main app.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AppPopupMessage {
-    /// Command to update the characters data for the popup.
-    UpdateCharacter(CharacterWithIndex),
-}
-
-/// Representation of a `WoW` character along with its selected files and
-/// options inside the app UI.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[allow(clippy::struct_field_names)]
-pub struct Character {
-    /// The underlying `WoW` character data.
-    pub character: WowCharacter,
-    /// Which config files are selected.
-    selected_config_files: Vec<bool>,
-    /// Which addon files are selected.
-    selected_addon_files: Vec<bool>,
-    /// Whether the addon options section is collapsed.
-    addon_options_collapsed: bool,
-}
-
-impl Character {
-    #[must_use]
-    pub fn new(character: &WowCharacter) -> Self {
-        let config_file_count = character.config_files.len();
-        let addon_file_count = character.addon_files.len();
-        Self {
-            character: character.clone(),
-            selected_config_files: vec![false; config_file_count],
-            selected_addon_files: vec![false; addon_file_count],
-            addon_options_collapsed: false,
-        }
-    }
-
-    /// Get the display name of the character, optionally including the realm.
-    #[must_use]
-    pub fn display_name(&self, show_realm: bool) -> String {
-        if show_realm {
-            format!("{} - {}", self.name(), self.realm())
-        } else {
-            self.name().to_string()
-        }
-    }
-
-    /// Get the realm of the character.
-    #[inline]
-    #[must_use]
-    pub fn realm(&self) -> &str {
-        &self.character.realm
-    }
-
-    /// Get the name of the character.
-    #[inline]
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.character.name
-    }
-
-    /// Get the class colour of the character.
-    #[inline]
-    #[must_use]
-    pub const fn class_colour(&self) -> Color {
-        self.character.class.class_colour()
-    }
-
-    /// Get the config files of the character.
-    #[inline]
-    #[must_use]
-    pub fn config_files(&self) -> &[wow::WowCharacterFile] {
-        &self.character.config_files
-    }
-
-    /// Get the addon files of the character.
-    #[inline]
-    #[must_use]
-    pub fn addon_files(&self) -> &[wow::WowCharacterFile] {
-        &self.character.addon_files
-    }
-
-    /// Get the backups of the character.
-    #[inline]
-    #[must_use]
-    pub fn backups(&self) -> &[wow::WowBackup] {
-        &self.character.backups
-    }
-
-    /// Check if a config file at the given index is selected.
-    #[inline]
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn is_config_file_selected(&self, index: usize) -> bool {
-        self.selected_config_files
-            .get(index)
-            .copied()
-            .unwrap_or(false)
-    }
-
-    /// Toggle the selected status of a config file at the given index.
-    #[inline]
-    pub fn toggle_config_file_selected(&mut self, index: usize) -> bool {
-        self.selected_config_files
-            .get_mut(index)
-            .is_some_and(|selected| {
-                *selected = !*selected;
-                *selected
-            })
-    }
-
-    /// Check if an addon file at the given index is selected.
-    #[inline]
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn is_addon_file_selected(&self, index: usize) -> bool {
-        self.selected_addon_files
-            .get(index)
-            .copied()
-            .unwrap_or(false)
-    }
-
-    /// Toggle the selected status of an addon file at the given index.
-    #[inline]
-    pub fn toggle_addon_file_selected(&mut self, index: usize) -> bool {
-        self.selected_addon_files
-            .get_mut(index)
-            .is_some_and(|selected| {
-                *selected = !*selected;
-                *selected
-            })
-    }
-
-    /// Check if any config files are selected.
-    #[inline]
-    #[must_use]
-    pub fn any_config_file_selected(&self) -> bool {
-        self.selected_config_files.iter().any(|&s| s)
-    }
-
-    /// Check if any addon file is selected.
-    #[inline]
-    #[must_use]
-    pub fn any_addon_file_selected(&self) -> bool {
-        self.selected_addon_files.iter().any(|&s| s)
-    }
-
-    /// Check if any files (regular or addon) are selected.
-    #[inline]
-    #[must_use]
-    pub fn any_file_selected(&self) -> bool {
-        self.any_config_file_selected() || self.any_addon_file_selected()
-    }
-
-    /// Check if all config files are selected.
-    #[inline]
-    #[must_use]
-    pub fn all_config_files_selected(&self) -> bool {
-        self.selected_config_files.iter().all(|&s| s)
-    }
-
-    /// Check if all addon files are selected.
-    #[inline]
-    #[must_use]
-    pub fn all_addon_files_selected(&self) -> bool {
-        self.selected_addon_files.iter().all(|&s| s)
-    }
-
-    /// Set the selected status of all config files.
-    #[inline]
-    pub fn set_all_config_selected(&mut self, state: bool) {
-        self.selected_config_files.fill(state);
-    }
-
-    /// Set the selected status of all addon files.
-    #[inline]
-    pub fn set_all_addon_selected(&mut self, state: bool) {
-        self.selected_addon_files.fill(state);
-    }
-
-    /// Set the selected status of all files (config and addon).
-    #[inline]
-    pub fn set_all_selected(&mut self, state: bool) {
-        self.set_all_config_selected(state);
-        self.set_all_addon_selected(state);
-    }
-
-    /// Get the count of selected config files.
-    #[inline]
-    #[must_use]
-    pub fn selected_config_count(&self) -> usize {
-        self.selected_config_files.iter().filter(|&&s| s).count()
-    }
-
-    /// Get the count of selected addon files.
-    #[inline]
-    #[must_use]
-    pub fn selected_addon_count(&self) -> usize {
-        self.selected_addon_files.iter().filter(|&&s| s).count()
-    }
-
-    /// Get the total count of selected files (config and addon).
-    #[inline]
-    #[must_use]
-    pub fn total_selected_count(&self) -> usize {
-        self.selected_config_count() + self.selected_addon_count()
-    }
-
-    /// Get all selected files from both config files and addon files.
-    #[must_use]
-    pub fn get_all_selected_files(&self) -> Vec<PathBuf> {
-        let mut selected_paths = Vec::new();
-
-        for (i, selected) in self.selected_config_files.iter().enumerate() {
-            if *selected && let Some(file) = self.config_files().get(i) {
-                selected_paths.push(file.get_full_filename().into());
-            }
-        }
-
-        for (i, selected) in self.selected_addon_files.iter().enumerate() {
-            if *selected && let Some(file) = self.addon_files().get(i) {
-                let path = PathBuf::from(wow::SAVED_VARIABLES).join(file.get_full_filename());
-                selected_paths.push(path);
-            }
-        }
-
-        selected_paths
-    }
-
-    /// Returns `true` if the other character represents the same character
-    /// (same `name`, `realm`, `account`, and `branch`).
-    #[inline]
-    #[must_use]
-    pub fn is_same_character(&self, other: &Self) -> bool {
-        self.character.is_same_character(&other.character)
-    }
-}
-
-// UI helper functions..
-impl Character {
-    /// Get a styled span for the character's display name, using the appropriate class colour.
-    #[inline]
-    #[must_use]
-    pub fn display_span(&self, show_realm: bool) -> Span<'static> {
-        let content = self.display_name(show_realm);
-        Span::styled(content, Style::default().fg(self.class_colour()))
-    }
-}
-
-/// Representation of a `WoW` character along with its selected files and
-/// options inside the app UI, and it's associated index.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[allow(clippy::struct_field_names)]
-pub struct CharacterWithIndex(pub Character, pub usize);
-
-impl AsRef<Character> for CharacterWithIndex {
-    fn as_ref(&self) -> &Character {
-        &self.0
-    }
-}
-
-impl AsMut<Character> for CharacterWithIndex {
-    fn as_mut(&mut self) -> &mut Character {
-        &mut self.0
-    }
-}
-
-/// Type alias for a character with its associated `WoW` installation.
-pub type CharacterWithInstall<'a> = (&'a Character, &'a wow::WowInstall);
-
 /// Different input modes for the application.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 enum InputMode {
@@ -441,7 +91,7 @@ enum InputMode {
     Popup,
 }
 
-/// Main application state.
+/// Main application.
 #[derive(Debug, Default)]
 pub struct ChronoBindApp {
     /// Application configuration settings.
@@ -795,8 +445,8 @@ impl ChronoBindApp {
                         let plural = if files_to_paste == 1 { "" } else { "s" };
                         let prompt = Span::from(format!("Paste {files_to_paste} file{plural} to "));
                         let char_name = dest_char.display_span(true).bold();
-                        self.handle_popup_command(
-                            &PopupAppCommand::Paste(target_char_idx)
+                        self.handle_popup_message(
+                            &AppMessage::Paste(target_char_idx)
                                 .with_confirm_and_line(Line::from(vec![prompt, char_name])),
                         );
                     }
@@ -843,9 +493,9 @@ impl ChronoBindApp {
     }
 
     /// Handle a single popup command.
-    fn handle_popup_command(&mut self, command: &PopupAppCommand) {
+    fn handle_popup_message(&mut self, command: &AppMessage) {
         match command {
-            PopupAppCommand::Backup(char_idx, backup_command) => match backup_command {
+            AppMessage::Backup(char_idx, backup_command) => match backup_command {
                 BackupPopupCommand::ManageBackups => {
                     self.show_manage_backups_popup(*char_idx, 0);
                 }
@@ -886,12 +536,12 @@ impl ChronoBindApp {
                     self.open_popup(RestorePopup::new(dest_char, Some(source_char)));
                 }
             },
-            PopupAppCommand::Restore(char_idx, restore_command) => match restore_command {
+            AppMessage::Restore(char_idx, restore_command) => match restore_command {
                 RestorePopupCommand::RestoreBackup(backup_index) => {
                     perform_character_restore(self, *backup_index, *char_idx);
                 }
             },
-            PopupAppCommand::Paste(char_idx) => {
+            AppMessage::Paste(char_idx) => {
                 let Some(source_char_idx) = &self.copied_char else {
                     log::error!("No character found for paste operation!");
                     return;
@@ -900,18 +550,18 @@ impl ChronoBindApp {
                     manage_character_backups(self, *char_idx);
                 }
             }
-            PopupAppCommand::Branch(BranchPopupCommand::SelectBranch(chosen_branch)) => {
+            AppMessage::Branch(BranchPopupCommand::SelectBranch(chosen_branch)) => {
                 log::info!("Switching to branch: {chosen_branch}");
                 self.set_selected_branch(chosen_branch);
             }
-            PopupAppCommand::Options(OptionsPopupCommand::UpdateConfiguration(new_config)) => {
+            AppMessage::Options(OptionsPopupCommand::UpdateConfiguration(new_config)) => {
                 log::debug!("Updating application configuration.");
                 self.config = new_config.clone();
                 self.config.save_to_file().unwrap_or_else(|e| {
                     log::error!("Failed to save configuration file: {e}");
                 });
             }
-            PopupAppCommand::BackupManager(char_idx, cmd) => {
+            AppMessage::BackupManager(char_idx, cmd) => {
                 match cmd {
                     BackupManagerPopupCommand::DeleteBackup(backup_index) => {
                         perform_backup_deletion(self, *char_idx, *backup_index);
@@ -922,10 +572,10 @@ impl ChronoBindApp {
                 }
                 self.refresh_character_backups(*char_idx);
                 if let Some(character) = self.character_with_index(*char_idx) {
-                    self.send_popup_message(&AppPopupMessage::UpdateCharacter(character));
+                    self.send_popup_message(&PopupMessage::UpdateCharacter(character));
                 }
             }
-            PopupAppCommand::ConfirmAction(action, action_line) => {
+            AppMessage::ConfirmAction(action, action_line) => {
                 log::debug!("Showing confirmation popup for action.");
                 self.show_confirmation_popup(*action.clone(), action_line.clone());
             }
@@ -943,7 +593,7 @@ impl ChronoBindApp {
         let closing = popup.should_close();
         if let Some(commands) = popup.commands() {
             for command in commands {
-                self.handle_popup_command(&command);
+                self.handle_popup_message(&command);
             }
         }
         if closing {
@@ -1180,7 +830,7 @@ impl ChronoBindApp {
 
     /// Send a message to the current popup.
     #[inline]
-    pub fn send_popup_message(&mut self, message: &AppPopupMessage) {
+    pub fn send_popup_message(&mut self, message: &PopupMessage) {
         if let Some(popup) = &mut self.popup {
             popup.process_message(message);
         }
@@ -1189,7 +839,7 @@ impl ChronoBindApp {
     /// Show a generic confirmation popup for the given action.
     pub fn show_confirmation_popup(
         &mut self,
-        action: PopupAppCommand,
+        action: AppMessage,
         action_line: Option<ConfirmActionText>,
     ) {
         self.confirm_popup = Some(ConfirmationPopup::new(action, action_line));

@@ -8,7 +8,8 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState};
 
-use crate::Character;
+use crate::ui::Character;
+
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::popups::list_with_scrollbar;

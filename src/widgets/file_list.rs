@@ -6,7 +6,8 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState, Paragraph, Widget};
 
-use crate::Character;
+use crate::ui::Character;
+
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::popups::list_with_scrollbar;
@@ -182,7 +183,7 @@ impl FileListWidget {
         config: &FileListConfig,
     ) -> ListItem<'a> {
         let file = &character.config_files()[file_idx];
-        let selected = character.selected_config_files[file_idx];
+        let selected = character.is_config_file_selected(file_idx);
         let has_friendly = file.has_friendly_name();
 
         let fg_colour = if selected {
@@ -254,7 +255,7 @@ impl FileListWidget {
     ) -> ListItem<'a> {
         const ADDON_IDENT: usize = 3;
 
-        let selected = character.selected_addon_files[file_idx];
+        let selected = character.is_config_file_selected(file_idx);
         let file = &character.addon_files()[file_idx];
         let has_friendly = file.has_friendly_name();
 

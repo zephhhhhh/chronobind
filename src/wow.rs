@@ -135,12 +135,12 @@ const USER_DIR: &str = "WTF";
 /// Name of the account directory within the `WoW` user settings.
 const ACCOUNT_DIR: &str = "Account";
 /// Name of the `SavedVariables` directory within the `WoW` user settings.
-pub const SAVED_VARIABLES: &str = "SavedVariables";
+pub const SAVED_VARIABLES_DIR: &str = "SavedVariables";
 
 /// Check if a directory name is a valid `WoW` account directory name within the `WTF/Account` path.
 #[inline]
 fn is_account_dir(dir_name: &str) -> bool {
-    dir_name != SAVED_VARIABLES && dir_name.chars().all(|c| c.is_numeric() || c == '#')
+    dir_name != SAVED_VARIABLES_DIR && dir_name.chars().all(|c| c.is_numeric() || c == '#')
 }
 
 /// Finds all valid `WoW` account directories (not characters) in the given installation.
@@ -208,7 +208,7 @@ impl WowInstall {
                     |_| vec![],
                     |realms| {
                         realms
-                            .filter(|d| d != SAVED_VARIABLES)
+                            .filter(|d| d != SAVED_VARIABLES_DIR)
                             .map(|d| (account.clone(), d))
                             .collect::<Vec<(String, String)>>()
                     },
@@ -502,7 +502,7 @@ impl WowCharacter {
     fn map_addon_files(&mut self, char_path: &Path) -> bool {
         self.addon_files = Vec::new();
 
-        let saved_variables_path = char_path.join(SAVED_VARIABLES);
+        let saved_variables_path = char_path.join(SAVED_VARIABLES_DIR);
         if !saved_variables_path.is_dir() || !saved_variables_path.exists() {
             return false;
         }

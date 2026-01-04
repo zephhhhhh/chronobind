@@ -1,21 +1,21 @@
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::{
-    ConfirmActionText,
     popups::wrap_selection_text,
-    widgets::popup::{Popup, PopupCommand},
+    ui::{
+        KeyCodeExt,
+        messages::{AppMessage, ConfirmActionText},
+    },
+    widgets::popup::{Popup, popup_block, popup_list},
 };
 
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
-    layout::{Alignment, Margin, Rect},
-    style::{Style, Stylize},
-    symbols::border,
+    layout::{Margin, Rect},
+    style::Style,
     text::Line,
-    widgets::{
-        Block, Clear, List, ListDirection, ListItem, ListState, Padding, StatefulWidget, Widget,
-    },
+    widgets::{Clear, ListItem, ListState, StatefulWidget, Widget},
 };
 
 /// Identifier for the confirmation popup.
@@ -25,7 +25,7 @@ pub const CONFIRM_POPUP_ID: &str = "confirm_popup";
 #[derive(Debug, Clone)]
 pub struct ConfirmationPopup {
     /// The command to perform after confirmation.
-    pub action: PopupCommand,
+    pub action: AppMessage,
     /// An optional action line to display additional information.
     pub action_line: Option<ConfirmActionText>,
 
@@ -35,7 +35,7 @@ pub struct ConfirmationPopup {
     pub state: ListState,
 
     /// Commands issued by the popup.
-    pub commands: Vec<PopupCommand>,
+    pub commands: Vec<AppMessage>,
 }
 
 impl ConfirmationPopup {
@@ -45,7 +45,7 @@ impl ConfirmationPopup {
     const CONFIRM_IDX: usize = 1;
 
     #[must_use]
-    pub fn new(action: PopupCommand, action_line: Option<ConfirmActionText>) -> Self {
+    pub fn new(action: AppMessage, action_line: Option<ConfirmActionText>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
@@ -70,14 +70,12 @@ impl ConfirmationPopup {
 
 impl Popup for ConfirmationPopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_sub(1)));
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state.select_previous();
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_add(1)));
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state.select_next();
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(selected) = self.state.selected() {
@@ -88,7 +86,7 @@ impl Popup for ConfirmationPopup {
                     }
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 self.close = true;
             }
             _ => {}
@@ -98,14 +96,7 @@ impl Popup for ConfirmationPopup {
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         let render_area = area.inner(Margin::new(1, 1));
 
-        // Get title styling based on context (character if applicable)
-        let block = Block::bordered()
-            .title(Line::from(" Are you sure? ").bold().fg(STD_FG))
-            .border_set(border::ROUNDED)
-            .border_style(Style::default().fg(LOG_WARN_FG))
-            .title_alignment(Alignment::Center)
-            .bg(STD_BG)
-            .padding(Padding::symmetric(1, 0));
+        let block = popup_block(" Are you sure? ").border_style(Style::default().fg(LOG_WARN_FG));
 
         let selected_idx = self.state.selected().unwrap_or(0);
         let items = [
@@ -129,12 +120,7 @@ impl Popup for ConfirmationPopup {
             ),
         ];
 
-        let list_view = List::new(items)
-            .block(block)
-            .fg(STD_FG)
-            .highlight_style(Style::new().bold().bg(HOVER_BG))
-            .direction(ListDirection::TopToBottom)
-            .repeat_highlight_symbol(true);
+        let list_view = popup_list(block, items);
 
         Widget::render(Clear, render_area, buf);
         StatefulWidget::render(list_view, render_area, buf, &mut self.state);
@@ -152,7 +138,7 @@ impl Popup for ConfirmationPopup {
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
     }
-    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         Some(&mut self.commands)
     }
 

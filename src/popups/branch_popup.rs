@@ -1,18 +1,17 @@
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::{
-    widgets::popup::{Popup, PopupCommand},
-    wow,
+    ui::{KeyCodeExt, messages::AppMessage},
+    widgets::popup::{Popup, popup_block, popup_list},
+    wow::WowInstall,
 };
 
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
-    layout::{Alignment, Rect},
-    style::{Style, Stylize},
-    symbols::border,
+    layout::Rect,
     text::Line,
-    widgets::{Block, List, ListDirection, ListItem, ListState, Padding, StatefulWidget},
+    widgets::{ListItem, ListState, StatefulWidget},
 };
 
 /// Different commands that can be issued from a branch popup.
@@ -25,7 +24,7 @@ pub enum BranchPopupCommand {
 #[derive(Debug, Clone)]
 pub struct BranchPopup {
     /// The available branches.
-    pub branches: Vec<wow::WowInstall>,
+    pub branches: Vec<WowInstall>,
     /// The currently selected branch.
     pub current_branch: Option<String>,
 
@@ -35,12 +34,12 @@ pub struct BranchPopup {
     pub state: ListState,
 
     /// Commands issued by the popup.
-    pub commands: Vec<PopupCommand>,
+    pub commands: Vec<AppMessage>,
 }
 
 impl BranchPopup {
     #[must_use]
-    pub fn new(branches: Vec<wow::WowInstall>, current_branch: Option<String>) -> Self {
+    pub fn new(branches: Vec<WowInstall>, current_branch: Option<String>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
@@ -57,7 +56,7 @@ impl BranchPopup {
     /// Push a command to the popup's command list.
     #[inline]
     pub fn push_command(&mut self, command: BranchPopupCommand) {
-        self.commands.push(PopupCommand::Branch(command));
+        self.commands.push(AppMessage::Branch(command));
     }
 
     /// Push a command to the popup's command list and close the popup.
@@ -70,14 +69,12 @@ impl BranchPopup {
 
 impl Popup for BranchPopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_sub(1)));
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state.select_previous();
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_add(1)));
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state.select_next();
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(selected) = self.state.selected()
@@ -88,7 +85,7 @@ impl Popup for BranchPopup {
                     ));
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 self.close = true;
             }
             _ => {}
@@ -96,12 +93,7 @@ impl Popup for BranchPopup {
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        let block = Block::bordered()
-            .title(Line::from(" Select a WoW Branch ").bold())
-            .border_set(border::ROUNDED)
-            .title_alignment(Alignment::Center)
-            .bg(STD_BG)
-            .padding(Padding::symmetric(1, 0));
+        let block = popup_block(" Select a WoW Branch ");
 
         let items = self
             .branches
@@ -121,13 +113,7 @@ impl Popup for BranchPopup {
             })
             .collect::<Vec<ListItem>>();
 
-        let list_view = List::new(items)
-            .block(block)
-            .fg(STD_FG)
-            .highlight_style(Style::new().bold().bg(HOVER_BG))
-            .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
-            .direction(ListDirection::TopToBottom);
-
+        let list_view = popup_list(block, items);
         StatefulWidget::render(list_view, area, buf, &mut self.state);
     }
 
@@ -143,7 +129,7 @@ impl Popup for BranchPopup {
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
     }
-    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         Some(&mut self.commands)
     }
 }

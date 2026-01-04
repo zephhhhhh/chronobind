@@ -3,18 +3,18 @@ use crate::palette::*;
 use crate::{
     CharacterWithIndex,
     popups::list_with_scrollbar,
-    widgets::popup::{Popup, PopupCommand, PopupMessage},
+    ui::{KeyCodeExt, messages::AppMessage},
+    widgets::popup::{Popup, PopupMessage, popup_block, popup_list},
 };
 
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
-    layout::{Alignment, Rect},
-    style::{Style, Stylize},
-    symbols::border,
+    layout::Rect,
+    style::Stylize,
     text::{Line, Span},
-    widgets::{Block, List, ListDirection, ListItem, ListState, Padding},
+    widgets::{ListItem, ListState},
 };
 
 /// Different commands that can be issued from a backup manager popup.
@@ -36,7 +36,7 @@ pub struct BackupManagerPopup {
     pub state: ListState,
 
     /// Commands issued by the popup.
-    pub commands: Vec<PopupCommand>,
+    pub commands: Vec<AppMessage>,
 }
 
 impl BackupManagerPopup {
@@ -58,7 +58,7 @@ impl BackupManagerPopup {
     #[inline]
     pub fn push_command(&mut self, command: BackupManagerPopupCommand) {
         self.commands
-            .push(PopupCommand::BackupManager(self.character.1, command));
+            .push(AppMessage::BackupManager(self.character.1, command));
     }
 
     /// Push a command to the popup's command list and close the popup.
@@ -78,27 +78,25 @@ impl BackupManagerPopup {
 
 impl Popup for BackupManagerPopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_sub(1)));
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state.select_previous();
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_add(1)));
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state.select_next();
             }
-            KeyCode::Char('e' | 'E') => {
+            KeyCode::Char('e') => {
                 if let Some(selected) = self.state.selected()
                     && self.character.0.backups().len() > selected
                 {
                     self.push_command(BackupManagerPopupCommand::ToggleBackupPin(selected));
                 }
             }
-            KeyCode::Char('d' | 'D') => {
+            KeyCode::Char('d') => {
                 if let Some(selected) = self.state.selected()
                     && let Some(backup) = self.get_backup(selected).cloned()
                 {
-                    let command = PopupCommand::BackupManager(
+                    let command = AppMessage::BackupManager(
                         self.character.1,
                         BackupManagerPopupCommand::DeleteBackup(selected),
                     );
@@ -109,7 +107,7 @@ impl Popup for BackupManagerPopup {
                     ]));
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 self.close = true;
             }
             _ => {}
@@ -117,19 +115,11 @@ impl Popup for BackupManagerPopup {
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        let block = Block::bordered()
-            .title(
-                Line::from(vec![
-                    Span::from(" Backups for "),
-                    self.character.0.display_span(true),
-                    Span::from(" "),
-                ])
-                .bold(),
-            )
-            .border_set(border::ROUNDED)
-            .title_alignment(Alignment::Center)
-            .bg(STD_BG)
-            .padding(Padding::symmetric(1, 0));
+        let block = popup_block(vec![
+            Span::from(" Backups for "),
+            self.character.0.display_span(true),
+            Span::from(" "),
+        ]);
 
         let items = self
             .character
@@ -151,12 +141,7 @@ impl Popup for BackupManagerPopup {
             })
             .collect_vec();
 
-        let list_view = List::new(items)
-            .block(block)
-            .fg(STD_FG)
-            .highlight_style(Style::new().bold().bg(HOVER_BG))
-            .direction(ListDirection::TopToBottom);
-
+        let list_view = popup_list(block, items);
         list_with_scrollbar(list_view, area, buf, &mut self.state);
     }
 
@@ -196,7 +181,7 @@ impl Popup for BackupManagerPopup {
             pin_backup_opt,
         ])
     }
-    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         Some(&mut self.commands)
     }
     fn popup_min_width(&self) -> u16 {

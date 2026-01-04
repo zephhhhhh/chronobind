@@ -2,18 +2,18 @@
 use crate::palette::*;
 use crate::{
     ChronoBindAppConfig,
-    widgets::popup::{Popup, PopupCommand},
-    wow,
+    ui::{KeyCodeExt, messages::AppMessage},
+    widgets::popup::{Popup, popup_block, popup_list_no_block},
+    wow::WowInstall,
 };
 
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Style, Stylize},
-    symbols::border,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::Stylize,
     text::{Line, Span},
-    widgets::{Block, List, ListDirection, ListState, Padding, StatefulWidget, Widget},
+    widgets::{ListState, StatefulWidget, Widget},
 };
 
 /// Different commands that can be issued from a restore popup.
@@ -29,7 +29,7 @@ pub struct OptionsPopup {
     /// The current application configuration.
     pub configuration: ChronoBindAppConfig,
     /// Detected `WoW` branches.
-    pub branches: Vec<wow::WowInstall>,
+    pub branches: Vec<WowInstall>,
 
     /// Whether the popup should close.
     pub close: bool,
@@ -37,12 +37,12 @@ pub struct OptionsPopup {
     pub state: ListState,
 
     /// Commands issued by the popup.
-    pub commands: Vec<PopupCommand>,
+    pub commands: Vec<AppMessage>,
 }
 
 impl OptionsPopup {
     #[must_use]
-    pub fn new(config: ChronoBindAppConfig, branches: Vec<wow::WowInstall>) -> Self {
+    pub fn new(config: ChronoBindAppConfig, branches: Vec<WowInstall>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
@@ -59,7 +59,7 @@ impl OptionsPopup {
     /// Push a command to the popup's command list.
     #[inline]
     pub fn push_command(&mut self, command: OptionsPopupCommand) {
-        self.commands.push(PopupCommand::Options(command));
+        self.commands.push(AppMessage::Options(command));
     }
 
     /// Push a command to the popup's command list and close the popup.
@@ -174,10 +174,7 @@ impl OptionsPopup {
             Line::from(self.get_preferred_branch_text(selected_idx == Self::PREFERRED_BRANCH_IDX)),
         ];
 
-        let list_view = List::new(items)
-            .fg(STD_FG)
-            .highlight_style(Style::new().bold().bg(HOVER_BG))
-            .direction(ListDirection::TopToBottom);
+        let list_view = popup_list_no_block(items);
 
         StatefulWidget::render(list_view, area, buf, &mut self.state);
     }
@@ -268,7 +265,7 @@ impl OptionsPopup {
     /// Find a `WoW` installation by its branch identifier.
     #[inline]
     #[must_use]
-    pub fn find_wow_branch(&self, branch: &str) -> Option<&wow::WowInstall> {
+    pub fn find_wow_branch(&self, branch: &str) -> Option<&WowInstall> {
         self.branches
             .iter()
             .find(|install| install.branch_ident.to_lowercase() == branch.to_lowercase())
@@ -277,21 +274,14 @@ impl OptionsPopup {
 
 impl Popup for OptionsPopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_sub(1)));
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state.select_previous();
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_add(1)));
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state.select_next();
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                if let Some(selected) = self.state.selected() {
-                    self.interact_with_option(selected);
-                }
-            }
-            KeyCode::Left | KeyCode::Char('a' | 'A') => {
+            KeyCode::Left | KeyCode::Char('a') => {
                 let selected_index = self.selected_index();
                 match selected_index {
                     Self::PREFERRED_BRANCH_IDX => {
@@ -307,7 +297,7 @@ impl Popup for OptionsPopup {
                     _ => {}
                 }
             }
-            KeyCode::Right | KeyCode::Char('d' | 'D') => {
+            KeyCode::Right | KeyCode::Char('d') => {
                 let selected_index = self.selected_index();
                 match selected_index {
                     Self::PREFERRED_BRANCH_IDX => {
@@ -320,10 +310,15 @@ impl Popup for OptionsPopup {
                             self.push_update_command();
                         }
                     }
-                    _ => {}
+                    _ => {
+                        self.interact_with_option(self.selected_index());
+                    }
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'o' | 'O') => {
+            KeyCode::Enter => {
+                self.interact_with_option(self.selected_index());
+            }
+            KeyCode::Esc | KeyCode::Char('q' | 'o') => {
                 self.close();
             }
             _ => {}
@@ -331,14 +326,7 @@ impl Popup for OptionsPopup {
     }
 
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
-        let title_style = Style::default().bold().fg(STD_FG);
-        let block = Block::bordered()
-            .title(Line::styled(" ChronoBind Options ", title_style))
-            .border_set(border::ROUNDED)
-            .padding(Padding::symmetric(1, 0))
-            .title_alignment(Alignment::Center)
-            .bg(STD_BG);
-
+        let block = popup_block(" ChronoBind Options ");
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Fill(1), Constraint::Length(1)])
@@ -373,7 +361,7 @@ impl Popup for OptionsPopup {
         options.push("Esc: Close");
         Some(options)
     }
-    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         Some(&mut self.commands)
     }
     fn popup_width_percent(&self) -> u16 {

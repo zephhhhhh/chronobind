@@ -3,18 +3,18 @@ use crate::palette::*;
 use crate::{
     CharacterWithIndex,
     popups::list_with_scrollbar,
-    widgets::popup::{Popup, PopupCommand},
+    ui::{KeyCodeExt, messages::AppMessage},
+    widgets::popup::{Popup, popup_block, popup_list},
 };
 
 use itertools::Itertools;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
-    layout::{Alignment, Rect},
-    style::{Style, Stylize},
-    symbols::border,
+    layout::Rect,
+    style::Stylize,
     text::{Line, Span},
-    widgets::{Block, List, ListDirection, ListItem, ListState, Padding},
+    widgets::{ListItem, ListState},
 };
 
 /// Different commands that can be issued from a restore popup.
@@ -38,7 +38,7 @@ pub struct RestorePopup {
     pub state: ListState,
 
     /// Commands issued by the popup.
-    pub commands: Vec<PopupCommand>,
+    pub commands: Vec<AppMessage>,
 }
 
 impl RestorePopup {
@@ -60,19 +60,19 @@ impl RestorePopup {
     /// Create a popup command for the given restore command.
     #[inline]
     #[must_use]
-    pub const fn get_command(&self, command: RestorePopupCommand) -> PopupCommand {
-        PopupCommand::Restore(self.dest_char.1, command)
+    pub const fn get_command(&self, command: RestorePopupCommand) -> AppMessage {
+        AppMessage::Restore(self.dest_char.1, command)
     }
 
     /// Push a command to the popup's command list.
     #[inline]
-    pub fn push_command(&mut self, command: PopupCommand) {
+    pub fn push_command(&mut self, command: AppMessage) {
         self.commands.push(command);
     }
 
     /// Push a command to the popup's command list and close the popup.
     #[inline]
-    pub fn push_command_close(&mut self, command: PopupCommand) {
+    pub fn push_command_close(&mut self, command: AppMessage) {
         self.push_command(command);
         self.close = true;
     }
@@ -101,14 +101,12 @@ impl RestorePopup {
 
 impl Popup for RestorePopup {
     fn on_key_down(&mut self, key: &KeyEvent) {
-        match key.code {
-            KeyCode::Up | KeyCode::Char('w' | 'W') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_sub(1)));
+        match key.keycode_lower() {
+            KeyCode::Up | KeyCode::Char('w') => {
+                self.state.select_previous();
             }
-            KeyCode::Down | KeyCode::Char('s' | 'S') => {
-                self.state
-                    .select(self.state.selected().map(|i| i.saturating_add(1)));
+            KeyCode::Down | KeyCode::Char('s') => {
+                self.state.select_next();
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(selected) = self.state.selected()
@@ -123,7 +121,7 @@ impl Popup for RestorePopup {
                     );
                 }
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 self.close = true;
             }
             _ => {}
@@ -136,12 +134,7 @@ impl Popup for RestorePopup {
             self.dest_char.0.display_span(true),
             Span::from(" "),
         ];
-        let block = Block::bordered()
-            .title(Line::from(title_spans).bold())
-            .border_set(border::ROUNDED)
-            .title_alignment(Alignment::Center)
-            .bg(STD_BG)
-            .padding(Padding::symmetric(1, 0));
+        let block = popup_block(title_spans);
 
         let items = self
             .source_char()
@@ -163,11 +156,7 @@ impl Popup for RestorePopup {
             })
             .collect_vec();
 
-        let list_view = List::new(items)
-            .block(block)
-            .fg(STD_FG)
-            .highlight_style(Style::new().bold().bg(HOVER_BG))
-            .direction(ListDirection::TopToBottom);
+        let list_view = popup_list(block, items);
 
         list_with_scrollbar(list_view, area, buf, &mut self.state);
     }
@@ -184,7 +173,7 @@ impl Popup for RestorePopup {
     fn bottom_bar_options(&self) -> Option<Vec<&str>> {
         Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
     }
-    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         Some(&mut self.commands)
     }
 }

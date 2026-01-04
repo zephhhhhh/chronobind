@@ -3,8 +3,15 @@ use std::fmt::Debug;
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::widgets::{Clear, Widget};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
+use ratatui::prelude::Stylize;
+use ratatui::style::Style;
+use ratatui::symbols::border;
+use ratatui::text::Line;
+use ratatui::widgets::{Block, Clear, List, ListDirection, ListItem, Padding, Widget};
+
+use crate::palette::{HOVER_BG, STD_BG, STD_FG};
+pub use crate::ui::messages::{AppMessage, PopupMessage};
 
 /// Type alias for a boxed `Popup` trait object.
 pub type PopupPtr = Box<dyn Popup + Send + Sync>;
@@ -14,11 +21,6 @@ impl Debug for Box<dyn Popup + Send + Sync> {
         f.debug_struct("Popup").finish()
     }
 }
-
-/// Type alias for commands that can be issued from a popup.
-pub type PopupCommand = crate::PopupAppCommand;
-/// Type alias for commands that can be issued to a popup from the main app.
-pub type PopupMessage = crate::AppPopupMessage;
 
 /// Trait representing a popup widget.
 pub trait Popup {
@@ -41,7 +43,7 @@ pub trait Popup {
     }
 
     /// Get mutable reference to internal commands, if any.
-    fn internal_commands_mut(&mut self) -> Option<&mut Vec<PopupCommand>> {
+    fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         None
     }
 
@@ -72,7 +74,7 @@ pub trait Popup {
         self.draw(popup_area, frame.buffer_mut());
     }
     /// Retrieve and clear any commands issued by the popup.
-    fn commands(&mut self) -> Option<Vec<PopupCommand>> {
+    fn commands(&mut self) -> Option<Vec<AppMessage>> {
         self.internal_commands_mut().and_then(|cmds| {
             if cmds.is_empty() {
                 None
@@ -111,6 +113,8 @@ pub trait Popup {
     }
 }
 
+// Helper functions..
+
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 /// with minimum width and height constraints.
 #[inline]
@@ -124,4 +128,61 @@ pub fn popup_area(area: Rect, percent_x: u16, percent_y: u16, min_x: u16, min_y:
     let [area] = vertical.areas(area);
     let [area] = horizontal.areas(area);
     area
+}
+
+// Popup styling functions..
+
+/// Standard padding for popups.
+pub const POPUP_PADDING: Padding = Padding::symmetric(1, 0);
+/// Standard title alignment for popups.
+pub const POPUP_TITLE_ALIGNMENT: Alignment = Alignment::Center;
+/// Standard border style for popups.
+pub const POPUP_BORDER_STYLE: border::Set<'static> = border::ROUNDED;
+
+/// Create a consistently styled popup block with a title for use in popups, does not stylise the inner content,
+/// if you want a consistent inner styling, use `popup_block` instead.
+#[inline]
+pub fn popup_block_raw<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
+    Block::bordered()
+        .title(title.into().bold())
+        .title_alignment(POPUP_TITLE_ALIGNMENT)
+        .border_set(POPUP_BORDER_STYLE)
+        .bg(STD_BG)
+}
+
+/// Create a consistently styled popup block with a title for use in popups, does style and center the inner content,
+/// if you do not want this, use `popup_block_raw` instead.
+#[inline]
+pub fn popup_block<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
+    popup_block_raw(title).padding(POPUP_PADDING)
+}
+
+// List styling functions..
+
+/// Standard highlight style for popup lists.
+pub const POPUP_LIST_HIGHLIGHT_STYLE: Style = Style::new().bold().bg(HOVER_BG);
+/// Standard list direction for popup lists.
+pub const POPUP_LIST_DIRECTION: ListDirection = ListDirection::TopToBottom;
+
+/// Create a consistently styled list for use in popups, without a block.
+#[inline]
+pub fn popup_list_no_block<'a, T>(items: T) -> List<'a>
+where
+    T: IntoIterator,
+    T::Item: Into<ListItem<'a>>,
+{
+    List::new(items)
+        .fg(STD_FG)
+        .highlight_style(POPUP_LIST_HIGHLIGHT_STYLE)
+        .direction(POPUP_LIST_DIRECTION)
+}
+
+/// Create a consistently styled list for use in popups.
+#[inline]
+pub fn popup_list<'a, T>(block: Block<'a>, items: T) -> List<'a>
+where
+    T: IntoIterator,
+    T::Item: Into<ListItem<'a>>,
+{
+    popup_list_no_block(items).block(block)
 }
