@@ -6,6 +6,7 @@ pub mod config;
 pub mod files;
 pub mod palette;
 pub mod popups;
+pub mod terminal;
 pub mod tui_log;
 pub mod ui;
 pub mod widgets;
@@ -29,7 +30,7 @@ use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::config::ChronoBindAppConfig;
-use crate::palette::{STD_BG, STD_FG};
+use crate::palette::{ENTER_SYMBOL, STD_BG, STD_FG};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
@@ -44,6 +45,10 @@ use crate::ui::{
 use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::WowBackup;
 
+#[cfg(feature = "windows_terminal")]
+/// Whether to relaunch in debug mode on Windows Terminal if better symbols are not supported.
+const RELAUNCH_IN_DEBUG: bool = false;
+
 /// Entry point..
 fn main() -> Result<()> {
     // Bootstrap better panic handling..
@@ -55,6 +60,22 @@ fn main() -> Result<()> {
     } else {
         log::LevelFilter::Info
     });
+
+    let terminal_type = *terminal::TERMINAL_TYPE;
+    log::info!("Detected terminal type: {terminal_type}");
+    let better_symbols = terminal_type.supports_better_symbols();
+
+    #[cfg(feature = "windows_terminal")]
+    {
+        if !better_symbols
+            && (!cfg!(debug_assertions) || RELAUNCH_IN_DEBUG)
+            && try_relaunch_in_windows_terminal()
+        {
+            return Ok(());
+        }
+    }
+
+    log::debug!("Better symbols support: {better_symbols}");
 
     let mut app = ChronoBindApp::new();
     let mut terminal = ratatui::init();
@@ -68,6 +89,26 @@ fn main() -> Result<()> {
     ratatui::restore();
 
     result
+}
+
+#[cfg(feature = "windows_terminal")]
+fn try_relaunch_in_windows_terminal() -> bool {
+    if terminal::windows_terminal_installed() {
+        log::info!("Windows terminal installed, attempting to relaunch..");
+        match terminal::relaunch_in_windows_terminal() {
+            Ok(()) => {
+                log::info!("Relaunch successful, exiting current instance.");
+                true
+            }
+            Err(e) => {
+                log::error!("Failed to relaunch in Windows Terminal: {e}");
+                false
+            }
+        }
+    } else {
+        log::warn!("Windows terminal not installed, cannot relaunch with better symbols support.");
+        false
+    }
 }
 
 /// Set the console window title.
@@ -692,24 +733,32 @@ impl ChronoBindApp {
             "(O)ptions".to_string(),
             "(Q)uit".to_string(),
         ];
-        let status_elements = if self.console_widget.is_visible() {
-            vec!["↑/↓", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
+        let status_elements: Vec<String> = if self.console_widget.is_visible() {
+            ["↑/↓", "PgUp/PgDn: Fast Scroll", "Home/End: Jump"]
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect()
         } else {
             match self.input_mode {
                 InputMode::Navigation => {
-                    let mut items = vec!["↑/↓", "↵/→/Space: Select", "(B)ackup", "(C)opy"];
+                    let mut items = vec![
+                        "↑/↓".to_string(),
+                        format!("{}/→/Space: Select", ENTER_SYMBOL),
+                        "(B)ackup".to_string(),
+                        "(C)opy".to_string(),
+                    ];
                     if self.copied_char.is_some() {
-                        items.push("V: Paste");
+                        items.push("V: Paste".to_string());
                     }
                     items
                 }
                 InputMode::FileSelection => vec![
-                    "↑/↓",
-                    "←: Back",
-                    "Space/↵/→: Toggle",
-                    "Ctrl+A: Select All",
-                    "(B)ackup",
-                    "(C)opy",
+                    "↑/↓".to_string(),
+                    "←: Back".to_string(),
+                    format!("{} /Space/→: Toggle", ENTER_SYMBOL),
+                    "Ctrl+A: Select All".to_string(),
+                    "(B)ackup".to_string(),
+                    "(C)opy".to_string(),
                 ],
                 InputMode::Popup => self.active_popup().map_or_else(Vec::new, |popup| {
                     popup.bottom_bar_options().unwrap_or_default()

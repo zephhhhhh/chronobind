@@ -126,8 +126,12 @@ impl Popup for BranchPopup {
     fn popup_identifier(&self) -> &'static str {
         "branch_popup"
     }
-    fn bottom_bar_options(&self) -> Option<Vec<&str>> {
-        Some(vec!["↑/↓", "↵/Space: Select", "Esc: Close"])
+    fn bottom_bar_options(&self) -> Option<Vec<String>> {
+        Some(vec![
+            "↑/↓".to_string(),
+            format!("{}/Space: Select", ENTER_SYMBOL),
+            "Esc: Close".to_string(),
+        ])
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
         Some(&mut self.commands)

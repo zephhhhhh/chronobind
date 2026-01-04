@@ -1,7 +1,11 @@
+use std::{fmt::Display, ops::Deref};
+
 use const_format::concatcp;
 use ratatui::style::Color;
 
 pub use colours::*;
+
+use crate::terminal::BETTER_SYMBOLS;
 
 #[cfg(feature = "better-colours")]
 mod colours {
@@ -88,6 +92,32 @@ mod colours {
 
 // Icons, formatting, etc..
 
+/// A pair of symbols, in the form `(better_symbol, normal_symbol)`.
+pub struct DualSymbols(pub &'static str, pub &'static str);
+impl DualSymbols {
+    /// Get the appropriate symbol based on the `BETTER_SYMBOLS` setting.
+    #[inline]
+    #[must_use]
+    pub fn get(&self) -> &'static str {
+        if *BETTER_SYMBOLS { self.0 } else { self.1 }
+    }
+}
+impl Deref for DualSymbols {
+    type Target = &'static str;
+
+    fn deref(&self) -> &Self::Target {
+        if *BETTER_SYMBOLS { &self.0 } else { &self.1 }
+    }
+}
+impl Display for DualSymbols {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.get())
+    }
+}
+
+/// Icon representing the enter key.
+pub const ENTER_SYMBOL: DualSymbols = DualSymbols("↵", "Enter");
+
 /// Icon representing a collapsed item.
 pub const COLLAPSED_ICON: &str = "▶";
 /// Icon representing a collapsed item.
@@ -104,7 +134,7 @@ pub const HIGHLIGHT_SYMBOL: &str = ">";
 pub const HIGHLIGHT_SYMBOL_REVERSED: &str = "<";
 
 /// Symbol used to indicate selected items.
-pub const SELECTED_SYMBOL: &str = "✓";
+pub const SELECTED_SYMBOL: DualSymbols = DualSymbols("✓", "X");
 /// Symbol used to indicate unselected items.
 pub const UNSELECTED_SYMBOL: &str = " ";
 
@@ -113,17 +143,29 @@ pub const UNSELECTED_SYMBOL: &str = " ";
 pub const INDENTATION_STR: &str = " ";
 
 /// Symbol used to indicate pinned items.
-pub const PINNED_SYMBOL: &str = "☆";
+pub const PINNED_SYMBOL: DualSymbols = DualSymbols("☆", "**");
 
 /// Symbol used to indicate unlimited values.
-pub const UNLIMITED_SYMBOL: &str = "∞";
+pub const UNLIMITED_SYMBOL: DualSymbols = DualSymbols("∞", "inf");
+
+/// Icon representing an addon file.
+pub const ADDON_FILE_ICON: DualSymbols = DualSymbols("📦", "■");
+/// Icon representing a config file.
+pub const CONFIG_FILE_ICON: DualSymbols = DualSymbols("⚙ ", "≡");
 
 /// Get a string indicating whether an item is pinned, followed by a space if pinned.
 #[inline]
 #[must_use]
-pub const fn pinned_string(pinned: bool) -> &'static str {
+pub fn pinned_string(pinned: bool) -> &'static str {
+    const PINNED_BETTER: &str = concatcp!(PINNED_SYMBOL.0, " ");
+    const PINNED_STANDARD: &str = concatcp!(PINNED_SYMBOL.1, " ");
+
     if pinned {
-        concatcp!(PINNED_SYMBOL, " ")
+        if *BETTER_SYMBOLS {
+            PINNED_BETTER
+        } else {
+            PINNED_STANDARD
+        }
     } else {
         ""
     }
@@ -132,11 +174,19 @@ pub const fn pinned_string(pinned: bool) -> &'static str {
 /// Get a checkbox string based on whether the item is selected.
 #[inline]
 #[must_use]
-pub const fn checkbox(selected: bool) -> &'static str {
+pub fn checkbox(selected: bool) -> &'static str {
+    const UNSELECTED: &str = concatcp!('[', UNSELECTED_SYMBOL, ']');
+    const SELECTED_BETTER: &str = concatcp!('[', SELECTED_SYMBOL.0, ']');
+    const SELECTED_STANDARD: &str = concatcp!('[', SELECTED_SYMBOL.1, ']');
+
     if selected {
-        concatcp!('[', SELECTED_SYMBOL, ']')
+        if *BETTER_SYMBOLS {
+            SELECTED_BETTER
+        } else {
+            SELECTED_STANDARD
+        }
     } else {
-        concatcp!('[', UNSELECTED_SYMBOL, ']')
+        UNSELECTED
     }
 }
 

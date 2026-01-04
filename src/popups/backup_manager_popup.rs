@@ -165,7 +165,7 @@ impl Popup for BackupManagerPopup {
     fn popup_identifier(&self) -> &'static str {
         "backup_manager_popup"
     }
-    fn bottom_bar_options(&self) -> Option<Vec<&str>> {
+    fn bottom_bar_options(&self) -> Option<Vec<String>> {
         let selected_backup_index = self.state.selected().unwrap_or(0);
         let pin_backup_opt = if let Some(backup) = self.get_backup(selected_backup_index)
             && backup.is_pinned
@@ -175,10 +175,10 @@ impl Popup for BackupManagerPopup {
             "E: Pin Backup"
         };
         Some(vec![
-            "↑/↓",
-            "Esc: Close",
-            "D: Delete Backup",
-            pin_backup_opt,
+            "↑/↓".to_string(),
+            "Esc: Close".to_string(),
+            "D: Delete Backup".to_string(),
+            pin_backup_opt.to_string(),
         ])
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {

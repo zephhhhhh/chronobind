@@ -39,11 +39,6 @@ impl Default for FileListWidget {
 }
 
 impl FileListWidget {
-    /// Icon representing an addon file.
-    pub const ADDON_FILE_ICON: &str = "📦";
-    /// Icon representing a config file.
-    pub const CONFIG_FILE_ICON: &str = "⚙";
-
     /// Padding value for the file list.
     const PADDING: usize = 1;
 
@@ -196,9 +191,9 @@ impl FileListWidget {
         let mut style = Style::default().fg(fg_colour);
 
         let file_prefix_ui = Span::from(format!(
-            "{pad}{} {}  ",
+            "{pad}{} {} ",
             checkbox(selected),
-            Self::CONFIG_FILE_ICON,
+            *CONFIG_FILE_ICON,
             pad = indentation(Self::PADDING)
         ))
         .style(style);
@@ -255,7 +250,7 @@ impl FileListWidget {
     ) -> ListItem<'a> {
         const ADDON_IDENT: usize = 3;
 
-        let selected = character.is_config_file_selected(file_idx);
+        let selected = character.is_addon_file_selected(file_idx);
         let file = &character.addon_files()[file_idx];
         let has_friendly = file.has_friendly_name();
 
@@ -271,7 +266,7 @@ impl FileListWidget {
         let file_prefix_ui = Span::from(format!(
             "{pad}{} {} ",
             checkbox(selected),
-            Self::ADDON_FILE_ICON,
+            *ADDON_FILE_ICON,
             pad = indentation(Self::PADDING + ADDON_IDENT)
         ))
         .style(style);

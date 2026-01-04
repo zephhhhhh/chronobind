@@ -38,7 +38,7 @@ pub trait Popup {
     fn popup_identifier(&self) -> &'static str;
 
     /// Get options for the bottom bar, if any.
-    fn bottom_bar_options(&self) -> Option<Vec<&str>> {
+    fn bottom_bar_options(&self) -> Option<Vec<String>> {
         None
     }
 

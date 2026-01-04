@@ -348,17 +348,17 @@ impl Popup for OptionsPopup {
     fn popup_identifier(&self) -> &'static str {
         "options_popup"
     }
-    fn bottom_bar_options(&self) -> Option<Vec<&str>> {
-        let mut options = vec!["↑/↓"];
+    fn bottom_bar_options(&self) -> Option<Vec<String>> {
+        let mut options = vec!["↑/↓".to_string()];
         let selected_index = self.selected_index();
         if selected_index == Self::MAX_AUTO_BACKUPS_IDX
             || selected_index == Self::PREFERRED_BRANCH_IDX
         {
-            options.push("←/→: Adjust");
+            options.push("←/→: Adjust".to_string());
         } else {
-            options.push("↵/→/Space: Toggle");
+            options.push(format!("{}/→/Space: Toggle", ENTER_SYMBOL));
         }
-        options.push("Esc: Close");
+        options.push("Esc: Close".to_string());
         Some(options)
     }
     fn internal_commands_mut(&mut self) -> Option<&mut Vec<AppMessage>> {
