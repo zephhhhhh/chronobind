@@ -20,7 +20,9 @@ use ratatui::{
 /// Different commands that can be issued from a backup manager popup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackupManagerPopupCommand {
+    /// Toggle the pinned state of a backup at a specified index on the associated character index.
     ToggleBackupPin(usize),
+    /// Delete the backup at a specified index on the associated character index.
     DeleteBackup(usize),
 }
 
@@ -71,7 +73,7 @@ impl BackupManagerPopup {
     /// Get the backup at a specified index from the source character.
     #[inline]
     #[must_use]
-    pub fn get_backup(&self, index: usize) -> Option<&crate::wow::WowBackup> {
+    pub fn get_backup(&self, index: usize) -> Option<&crate::wow::WoWCharacterBackup> {
         self.character.0.backups().get(index)
     }
 }

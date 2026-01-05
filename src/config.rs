@@ -30,7 +30,8 @@ impl ChronoBindAppConfig {
 
 impl Default for ChronoBindAppConfig {
     fn default() -> Self {
-        let mock_mode = cfg!(debug_assertions);
+        //let mock_mode = cfg!(debug_assertions);
+        let mock_mode = true;
         Self {
             show_friendly_names: true,
             mock_mode,

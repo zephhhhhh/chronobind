@@ -5,7 +5,9 @@ use ratatui::{
     text::Span,
 };
 
-use crate::wow::{SAVED_VARIABLES_DIR, WowBackup, WowCharacter, WowCharacterFile, WowInstall};
+use crate::wow::{
+    SAVED_VARIABLES_DIR, WoWCharacter, WoWCharacterBackup, WoWCharacterFile, WoWInstall,
+};
 
 /// Type alias for a character index.
 pub type CharacterIndex = usize;
@@ -16,7 +18,7 @@ pub type CharacterIndex = usize;
 #[allow(clippy::struct_field_names)]
 pub struct Character {
     /// The underlying `WoW` character data.
-    pub character: WowCharacter,
+    pub character: WoWCharacter,
     /// Whether the addon options section is collapsed.
     pub addon_options_collapsed: bool,
 
@@ -28,7 +30,7 @@ pub struct Character {
 
 impl Character {
     #[must_use]
-    pub fn new(character: &WowCharacter) -> Self {
+    pub fn new(character: &WoWCharacter) -> Self {
         let config_file_count = character.config_files.len();
         let addon_file_count = character.addon_files.len();
         Self {
@@ -90,21 +92,21 @@ impl Character {
     /// Get the config files of the character.
     #[inline]
     #[must_use]
-    pub fn config_files(&self) -> &[WowCharacterFile] {
+    pub fn config_files(&self) -> &[WoWCharacterFile] {
         &self.character.config_files
     }
 
     /// Get the addon files of the character.
     #[inline]
     #[must_use]
-    pub fn addon_files(&self) -> &[WowCharacterFile] {
+    pub fn addon_files(&self) -> &[WoWCharacterFile] {
         &self.character.addon_files
     }
 
     /// Get the backups of the character.
     #[inline]
     #[must_use]
-    pub fn backups(&self) -> &[WowBackup] {
+    pub fn backups(&self) -> &[WoWCharacterBackup] {
         &self.character.backups
     }
 
@@ -291,4 +293,4 @@ impl AsMut<Character> for CharacterWithIndex {
 }
 
 /// Type alias for a character with its associated `WoW` installation.
-pub type CharacterWithInstall<'a> = (&'a Character, &'a WowInstall);
+pub type CharacterWithInstall<'a> = (&'a Character, &'a WoWInstall);

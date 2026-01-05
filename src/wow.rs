@@ -25,7 +25,7 @@ pub const WOW_RETAIL_IDENT: &str = "retail";
 
 /// Represents a World of Warcraft installation.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WowInstall {
+pub struct WoWInstall {
     /// The Battle.net product code for this installation.
     pub product_code: String,
     /// The branch identifier for this installation (e.g., "retail", "classic", etc.).
@@ -34,7 +34,7 @@ pub struct WowInstall {
     pub install_path: String,
 }
 
-impl WowInstall {
+impl WoWInstall {
     /// Returns true if this installation is the retail version of World of Warcraft.
     #[inline]
     #[must_use]
@@ -76,8 +76,63 @@ impl WowInstall {
     }
 }
 
+/// Collection of located `WoW` installations.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WoWInstalls {
+    /// Root path of `WoW` installations. (I.e. the folder that contains '_retail_', '_classic_', etc.)
+    pub root_path: Option<PathBuf>,
+    /// Located `WoW` installations.
+    pub installs: Vec<WoWInstall>,
+}
+
+impl WoWInstalls {
+    /// Create a new `WoWInstalls` instance from a vector of installs.
+    /// Assumes the root path is the common parent directory of the first install.
+    #[must_use]
+    pub fn new_from_installs(installs: Vec<WoWInstall>) -> Self {
+        let root_path = installs
+            .first()
+            .map(|install| PathBuf::from(&install.install_path));
+        Self {
+            root_path,
+            installs,
+        }
+    }
+
+    /// Get the number of located `WoW` installations.
+    #[inline]
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.installs.len()
+    }
+
+    /// Returns `true` if there are no `WoW` installations located.
+    #[inline]
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.installs.is_empty()
+    }
+}
+
+impl WoWInstalls {
+    /// Find a `WoW` installation by its branch identifier.
+    #[inline]
+    #[must_use]
+    pub fn find_branch(&self, branch: &str) -> Option<&WoWInstall> {
+        self.installs
+            .iter()
+            .find(|install| install.branch_ident.to_lowercase() == branch.to_lowercase())
+    }
+
+    /// Get an iterator over all located `WoW` installations.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &WoWInstall> {
+        self.installs.iter()
+    }
+}
+
 /// Extract World of Warcraft installation data from a Battle.net product installation entry.
-fn extract_wow_install_data(product: &productdb::ProductInstall) -> Option<WowInstall> {
+fn extract_wow_install_data(product: &productdb::ProductInstall) -> Option<WoWInstall> {
     if !product.product_code.starts_with(WOW_PRODUCT_CODE_IDENT) {
         return None;
     }
@@ -90,7 +145,7 @@ fn extract_wow_install_data(product: &productdb::ProductInstall) -> Option<WowIn
             .or_else(|| product.product_code.strip_prefix(WOW_PRODUCT_CODE_IDENT))?
             .to_string()
     };
-    Some(WowInstall {
+    Some(WoWInstall {
         product_code: product.product_code.clone(),
         branch_ident,
         install_path: product
@@ -103,7 +158,7 @@ fn extract_wow_install_data(product: &productdb::ProductInstall) -> Option<WowIn
 /// Locate all World of Warcraft installations on the system.
 /// # Errors
 /// This function will return an error if the Battle.net product database cannot be read or decoded.
-pub fn locate_wow_installs() -> Result<Vec<WowInstall>, Box<dyn std::error::Error>> {
+pub fn locate_wow_installs() -> Result<Vec<WoWInstall>, Box<dyn std::error::Error>> {
     let product_db = get_product_db()?;
 
     Ok(product_db
@@ -145,7 +200,7 @@ fn is_account_dir(dir_name: &str) -> bool {
 
 /// Finds all valid `WoW` account directories (not characters) in the given installation.
 fn find_accounts_in_install(
-    install: &WowInstall,
+    install: &WoWInstall,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let account_path = install.get_account_path();
     if account_path.is_dir() {
@@ -161,7 +216,7 @@ fn find_accounts_in_install(
     }
 }
 
-impl WowInstall {
+impl WoWInstall {
     /// Returns the path to the user settings directory for this installation.
     #[inline]
     #[must_use]
@@ -221,7 +276,7 @@ impl WowInstall {
     /// Find all realms characters across all realms across all accounts in this installation.
     #[inline]
     #[must_use]
-    pub fn find_all_characters(&self) -> Option<Vec<WowCharacter>> {
+    pub fn find_all_characters(&self) -> Option<Vec<WoWCharacter>> {
         let realms = self.find_all_realms()?;
         let characters = realms
             .iter()
@@ -231,21 +286,21 @@ impl WowInstall {
                     |_| vec![],
                     |chars| {
                         chars
-                            .map(|char_name| WowCharacter {
+                            .map(|char_name| WoWCharacter {
                                 account: account_name.clone(),
                                 branch: self.branch_ident.clone(),
                                 name: char_name,
                                 realm: realm_name.clone(),
-                                class: Class::Unknown,
+                                class: WoWClass::Unknown,
                                 config_files: vec![],
                                 addon_files: vec![],
                                 backups: vec![],
                             })
-                            .collect::<Vec<WowCharacter>>()
+                            .collect::<Vec<WoWCharacter>>()
                     },
                 )
             })
-            .collect::<Vec<WowCharacter>>();
+            .collect::<Vec<WoWCharacter>>();
         Some(characters)
     }
 
@@ -253,7 +308,7 @@ impl WowInstall {
     /// This populates all file information from the character directories as well.
     #[inline]
     #[must_use]
-    pub fn find_all_characters_and_files(&self) -> Option<Vec<WowCharacter>> {
+    pub fn find_all_characters_and_files(&self) -> Option<Vec<WoWCharacter>> {
         let mut chars = self.find_all_characters()?;
         for c in &mut chars {
             c.refresh_character_info(self);
@@ -264,7 +319,7 @@ impl WowInstall {
 
 /// Represents a file associated with a World of Warcraft character.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WowCharacterFile {
+pub struct WoWCharacterFile {
     /// The full name of the character file, including its extension.
     pub name: String,
     /// The stem (filename without extension) of the character file.
@@ -275,7 +330,7 @@ pub struct WowCharacterFile {
     pub friendly_name: Option<String>,
 }
 
-impl WowCharacterFile {
+impl WoWCharacterFile {
     /// Returns the full filename of the character file, including its extension.
     #[inline]
     #[must_use]
@@ -312,7 +367,7 @@ impl WowCharacterFile {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WowBackup {
+pub struct WoWCharacterBackup {
     /// The full path to the backup file.
     pub path: PathBuf,
     /// The name of the character associated with the backup.
@@ -325,7 +380,7 @@ pub struct WowBackup {
     pub is_pinned: bool,
 }
 
-impl WowBackup {
+impl WoWCharacterBackup {
     /// Returns a formatted string representation of the backup's name, including character name and timestamp.
     #[inline]
     #[must_use]
@@ -345,7 +400,7 @@ impl WowBackup {
 
 /// Represents a World of Warcraft character.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WowCharacter {
+pub struct WoWCharacter {
     /// The account name associated with the character.
     pub account: String,
     /// The branch identifier of the `WoW` installation the character belongs to.
@@ -355,13 +410,13 @@ pub struct WowCharacter {
     /// The realm the character belongs to.
     pub realm: String,
     /// The class of the character.
-    pub class: Class,
+    pub class: WoWClass,
     /// Files associated with the character's configuration.
-    pub config_files: Vec<WowCharacterFile>,
+    pub config_files: Vec<WoWCharacterFile>,
     /// Files associated with the character's addons.
-    pub addon_files: Vec<WowCharacterFile>,
+    pub addon_files: Vec<WoWCharacterFile>,
     /// Backups associated with the character.
-    pub backups: Vec<WowBackup>,
+    pub backups: Vec<WoWCharacterBackup>,
 }
 
 /// Extensions for old (backup) config files.
@@ -392,11 +447,11 @@ fn get_friendly_name(filename: &str) -> Option<String> {
         .map(|(_, friendly_name)| friendly_name.to_string())
 }
 
-impl WowCharacter {
+impl WoWCharacter {
     /// Returns the path to the character's directory.
     #[inline]
     #[must_use]
-    pub fn get_character_path(&self, install: &WowInstall) -> PathBuf {
+    pub fn get_character_path(&self, install: &WoWInstall) -> PathBuf {
         install
             .get_realm_path(&self.account, &self.realm)
             .join(&self.name)
@@ -405,7 +460,7 @@ impl WowCharacter {
     /// Returns the path to the character's backups directory.
     #[inline]
     #[must_use]
-    pub fn get_backups_dir(&self, install: &WowInstall) -> PathBuf {
+    pub fn get_backups_dir(&self, install: &WoWInstall) -> PathBuf {
         self.get_character_path(install).join(BACKUPS_DIR_NAME)
     }
 
@@ -413,7 +468,7 @@ impl WowCharacter {
     /// Also populates the character class information if possible.
     #[inline]
     #[allow(clippy::useless_let_if_seq)]
-    pub fn refresh_character_info(&mut self, install: &WowInstall) -> bool {
+    pub fn refresh_character_info(&mut self, install: &WoWInstall) -> bool {
         let char_path = self.get_character_path(install);
         if !char_path.is_dir() || !char_path.exists() {
             return false;
@@ -485,7 +540,7 @@ impl WowCharacter {
                 let name = path.file_name()?.to_str()?.to_string();
                 let stem = path.file_stem()?.to_str()?.to_string();
 
-                Some(WowCharacterFile {
+                Some(WoWCharacterFile {
                     name,
                     stem,
                     path,
@@ -523,7 +578,7 @@ impl WowCharacter {
 
                 let name = path.file_name()?.to_str()?.to_string();
                 let stem = path.file_stem()?.to_str()?.to_string();
-                Some(WowCharacterFile {
+                Some(WoWCharacterFile {
                     name,
                     stem,
                     path,
@@ -537,7 +592,7 @@ impl WowCharacter {
     }
 
     /// Refresh the list of backups for this character.
-    pub fn refresh_backups(&mut self, install: &WowInstall) -> bool {
+    pub fn refresh_backups(&mut self, install: &WoWInstall) -> bool {
         self.backups = Vec::new();
 
         let backups_dir = self.get_backups_dir(install);
@@ -558,7 +613,7 @@ impl WowCharacter {
             .filter_map(|(p, stem)| {
                 let (char_name, timestamp, is_paste, is_pinned) =
                     crate::backend::extract_backup_name(&stem)?;
-                Some(WowBackup {
+                Some(WoWCharacterBackup {
                     char_name,
                     timestamp,
                     is_paste,
@@ -591,7 +646,7 @@ impl WowCharacter {
                 let parts: Vec<&str> = loot_class_line.split_whitespace().collect();
                 if parts.len() >= 3 {
                     let id = parts[2].trim_matches(|c| c == '\"').parse::<u8>().ok()?;
-                    self.class = Class::from_id(id);
+                    self.class = WoWClass::from_id(id);
                     Some(())
                 } else {
                     None
@@ -601,7 +656,7 @@ impl WowCharacter {
     }
 }
 
-impl WowCharacter {
+impl WoWCharacter {
     /// Returns `true` if the other character represents the same character
     /// (same `name`, `realm`, `account`, and `branch`).
     #[inline]
@@ -616,7 +671,7 @@ impl WowCharacter {
     /// Returns a vector of unpinned & automatically generated backups for the character.
     #[inline]
     #[must_use]
-    pub fn unpinned_auto_backups(&self) -> Vec<WowBackup> {
+    pub fn unpinned_auto_backups(&self) -> Vec<WoWCharacterBackup> {
         self.backups
             .iter()
             .filter(|b| !b.is_pinned && b.is_paste)
@@ -637,7 +692,7 @@ impl WowCharacter {
     /// Returns the count of unpinned backups for the character.
     #[inline]
     #[must_use]
-    pub fn oldest_unpinned_auto_backup(&self) -> Option<&WowBackup> {
+    pub fn oldest_unpinned_auto_backup(&self) -> Option<&WoWCharacterBackup> {
         self.backups
             .iter()
             .filter(|b| !b.is_pinned && b.is_paste)
@@ -648,7 +703,7 @@ impl WowCharacter {
 /// Represents the class of a World of Warcraft character.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
-pub enum Class {
+pub enum WoWClass {
     #[default]
     Unknown = 0,
     Warrior = 1,
@@ -666,7 +721,7 @@ pub enum Class {
     Evoker = 13,
 }
 
-impl Class {
+impl WoWClass {
     /// Minimum valid Class ID.
     pub const MIN: u8 = Self::Warrior as u8;
     /// Maximum valid Class ID.

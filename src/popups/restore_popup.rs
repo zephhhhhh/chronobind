@@ -94,7 +94,7 @@ impl RestorePopup {
     /// Get the backup at a specified index from the source character.
     #[inline]
     #[must_use]
-    pub fn get_backup(&self, index: usize) -> Option<&crate::wow::WowBackup> {
+    pub fn get_backup(&self, index: usize) -> Option<&crate::wow::WoWCharacterBackup> {
         self.source_char().0.backups().get(index)
     }
 }

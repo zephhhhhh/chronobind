@@ -3,7 +3,7 @@ use crate::palette::*;
 use crate::{
     ui::{KeyCodeExt, messages::AppMessage},
     widgets::popup::{Popup, popup_block, popup_list},
-    wow::WowInstall,
+    wow::WoWInstalls,
 };
 
 use ratatui::{
@@ -17,6 +17,7 @@ use ratatui::{
 /// Different commands that can be issued from a branch popup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BranchPopupCommand {
+    /// Select a specific `WoW` branch to display the characters for.
     SelectBranch(String),
 }
 
@@ -24,7 +25,7 @@ pub enum BranchPopupCommand {
 #[derive(Debug, Clone)]
 pub struct BranchPopup {
     /// The available branches.
-    pub branches: Vec<WowInstall>,
+    pub branches: WoWInstalls,
     /// The currently selected branch.
     pub current_branch: Option<String>,
 
@@ -39,7 +40,7 @@ pub struct BranchPopup {
 
 impl BranchPopup {
     #[must_use]
-    pub fn new(branches: Vec<WowInstall>, current_branch: Option<String>) -> Self {
+    pub fn new(branches: WoWInstalls, current_branch: Option<String>) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
@@ -81,7 +82,7 @@ impl Popup for BranchPopup {
                     && selected < self.branches.len()
                 {
                     self.push_command_close(BranchPopupCommand::SelectBranch(
-                        self.branches[selected].branch_ident.clone(),
+                        self.branches.installs[selected].branch_ident.clone(),
                     ));
                 }
             }
@@ -98,6 +99,7 @@ impl Popup for BranchPopup {
         let selected_index = self.state.selected().unwrap_or(0);
         let items = self
             .branches
+            .installs
             .iter()
             .enumerate()
             .map(|(i, item)| {

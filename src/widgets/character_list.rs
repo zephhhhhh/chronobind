@@ -14,6 +14,17 @@ use crate::ui::{Character, KeyCodeExt};
 use crate::palette::*;
 use crate::popups::list_with_scrollbar;
 
+/// Represents a row in the file list
+#[derive(Debug, Clone)]
+pub enum CharacterListItemKind {
+    Character(usize),
+    RealmHeader {
+        realm_ident: String,
+        collapsed: bool,
+        count: usize,
+    },
+}
+
 /// The character list widget displays the characters grouped by realm with collapsible headers.
 #[derive(Debug, Clone)]
 pub struct CharacterListWidget {
@@ -48,10 +59,10 @@ impl CharacterListWidget {
         self.state.selected().unwrap_or(0)
     }
 
-    /// Get the actual character index from the selected position, accounting for grouped display
+    /// Generate the list of character list items with realm grouping
+    #[inline]
     #[must_use]
-    pub fn get_selected_character_index(&self, characters: &[Character]) -> Option<usize> {
-        // Build the grouped structure
+    pub fn get_character_list_items(&self, characters: &[Character]) -> Vec<CharacterListItemKind> {
         let mut realms: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (i, character) in characters.iter().enumerate() {
             realms
@@ -60,21 +71,47 @@ impl CharacterListWidget {
                 .push(i);
         }
 
-        let mut current_pos = 0;
+        let mut items = Vec::with_capacity(characters.len() + realms.len());
         for (realm, char_indices) in &realms {
-            current_pos += 1;
+            let collapsed = self.collapsed_realms.contains(realm);
+            let count = char_indices.len();
 
-            // Only process characters if realm is not collapsed
-            if !self.collapsed_realms.contains(realm) {
-                for &char_idx in char_indices {
-                    if current_pos == self.selected_index() {
-                        return Some(char_idx);
-                    }
-                    current_pos += 1;
-                }
-            }
+            // Add realm header
+            items.push(CharacterListItemKind::RealmHeader {
+                realm_ident: realm.clone(),
+                collapsed,
+                count,
+            });
+
+            items.extend_from_slice(
+                &char_indices
+                    .iter()
+                    .map(|c| CharacterListItemKind::Character(*c))
+                    .collect::<Vec<_>>(),
+            );
         }
-        None
+
+        items
+    }
+
+    /// Get the actual character index from the selected position, accounting for grouped display
+    #[must_use]
+    pub fn get_selected_character_index_from_chars(&self, chars: &[Character]) -> Option<usize> {
+        let item_list = self.get_character_list_items(chars);
+        self.get_selected_character_index(&item_list)
+    }
+
+    /// Get the actual character index from the selected position, accounting for grouped display
+    #[must_use]
+    pub fn get_selected_character_index(
+        &self,
+        item_list: &[CharacterListItemKind],
+    ) -> Option<usize> {
+        let selected_index = self.selected_index();
+        match item_list.get(selected_index) {
+            Some(CharacterListItemKind::Character(char_idx)) => Some(*char_idx),
+            _ => None,
+        }
     }
 
     /// Handle input for the character list in navigation mode
@@ -84,29 +121,7 @@ impl CharacterListWidget {
         key: &KeyEvent,
         characters: &[Character],
     ) -> NavigationAction {
-        // Build the grouped structure to determine navigation
-        let mut realms: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        for (i, character) in characters.iter().enumerate() {
-            realms
-                .entry(character.realm().to_string())
-                .or_default()
-                .push(i);
-        }
-
-        let mut abs_positions = Vec::new();
-        let mut current_pos = 0;
-        for (realm, char_indices) in &realms {
-            abs_positions.push((current_pos, true, realm.clone()));
-            current_pos += 1;
-
-            // Only add characters if realm is not collapsed
-            if !self.collapsed_realms.contains(realm) {
-                for &char_idx in char_indices {
-                    abs_positions.push((current_pos, false, format!("{char_idx}")));
-                    current_pos += 1;
-                }
-            }
-        }
+        let item_list = self.get_character_list_items(characters);
 
         match key.keycode_lower() {
             KeyCode::Up | KeyCode::Char('w') => {
@@ -117,53 +132,41 @@ impl CharacterListWidget {
                 self.state.select_next();
                 NavigationAction::None
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
-                if let Some((_, is_header, realm_or_idx)) = abs_positions.get(self.selected_index())
-                {
-                    if *is_header {
+            KeyCode::Enter | KeyCode::Char(' ' | 'd') | KeyCode::Right => {
+                match item_list.get(self.selected_index()) {
+                    Some(CharacterListItemKind::RealmHeader { realm_ident, .. }) => {
                         // Toggle realm collapse
-                        if self.collapsed_realms.contains(realm_or_idx) {
-                            self.collapsed_realms.remove(realm_or_idx);
+                        if self.collapsed_realms.contains(realm_ident) {
+                            self.collapsed_realms.remove(realm_ident);
                         } else {
-                            self.collapsed_realms.insert(realm_or_idx.clone());
+                            self.collapsed_realms.insert(realm_ident.clone());
                         }
                         NavigationAction::None
-                    } else {
+                    }
+                    Some(CharacterListItemKind::Character(_)) => {
                         // Character selected, enter file selection
                         log::debug!("Entered file selection mode");
                         NavigationAction::EnterFileSelection
                     }
-                } else {
-                    NavigationAction::None
-                }
-            }
-            KeyCode::Char('d') | KeyCode::Right => {
-                if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
-                    && !*is_header
-                {
-                    log::debug!("Entered file selection mode");
-                    NavigationAction::EnterFileSelection
-                } else {
-                    NavigationAction::None
+                    None => NavigationAction::None,
                 }
             }
             KeyCode::Char('b') => {
-                if let Some((_, is_header, _)) = abs_positions.get(self.selected_index())
-                    && !*is_header
-                    && let Some(char_idx) = self.get_selected_character_index(characters)
+                if let Some(CharacterListItemKind::Character(char_idx)) =
+                    item_list.get(self.selected_index())
                 {
-                    NavigationAction::ShowBackup(char_idx)
+                    NavigationAction::ShowBackup(*char_idx)
                 } else {
                     NavigationAction::None
                 }
             }
             KeyCode::Char('c') => self
-                .get_selected_character_index(characters)
+                .get_selected_character_index(&item_list)
                 .map_or(NavigationAction::None, |char_idx| {
                     NavigationAction::Copy(char_idx)
                 }),
             KeyCode::Char('v') => self
-                .get_selected_character_index(characters)
+                .get_selected_character_index(&item_list)
                 .map_or(NavigationAction::None, |target_char_idx| {
                     NavigationAction::Paste(target_char_idx)
                 }),

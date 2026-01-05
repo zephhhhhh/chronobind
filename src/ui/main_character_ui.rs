@@ -78,7 +78,7 @@ impl MainCharacterUI {
     ) {
         let char_index = self
             .character_list_widget
-            .get_selected_character_index(characters);
+            .get_selected_character_index_from_chars(characters);
         let selected_character = char_index.and_then(|idx| characters.get(idx));
         let show_highlight = input_mode == InputMode::FileSelection;
         let file_list_config = FileListConfig {

@@ -43,7 +43,7 @@ use crate::ui::{
     main_character_ui::MainCharacterUI,
 };
 use crate::widgets::popup::{Popup, PopupPtr};
-use crate::wow::WowBackup;
+use crate::wow::{WoWCharacterBackup, WoWInstall, WoWInstalls};
 
 #[cfg(feature = "windows_terminal")]
 /// Whether to relaunch in debug mode on Windows Terminal if better symbols are not supported.
@@ -147,7 +147,7 @@ pub struct ChronoBindApp {
     /// Currently selected `WoW` branch identifier.
     selected_branch: Option<String>,
     /// Located `WoW` installations.
-    wow_installations: Vec<wow::WowInstall>,
+    wow_installations: WoWInstalls,
     /// List of characters across the selected branch.
     characters: Vec<Character>,
     /// Index of the character from which files were copied.
@@ -195,7 +195,7 @@ impl ChronoBindApp {
             should_exit: false,
 
             selected_branch: None,
-            wow_installations: wow_installs,
+            wow_installations: WoWInstalls::new_from_installs(wow_installs),
             characters: Vec::new(),
             copied_char: None,
 
@@ -224,10 +224,8 @@ impl ChronoBindApp {
     /// Find a `WoW` installation by its branch identifier.
     #[inline]
     #[must_use]
-    pub fn find_wow_branch(&self, branch: &str) -> Option<&wow::WowInstall> {
-        self.wow_installations
-            .iter()
-            .find(|install| install.branch_ident.to_lowercase() == branch.to_lowercase())
+    pub fn find_wow_branch(&self, branch: &str) -> Option<&WoWInstall> {
+        self.wow_installations.find_branch(branch)
     }
 
     /// Get the currently selected character index.
@@ -241,13 +239,13 @@ impl ChronoBindApp {
     fn get_selected_character_index(&self) -> Option<usize> {
         self.main_ui
             .character_list_widget
-            .get_selected_character_index(&self.characters)
+            .get_selected_character_index_from_chars(&self.characters)
     }
 
     /// Get the currently selected branch's `WoW` installation.
     #[inline]
     #[must_use]
-    pub fn get_selected_branch_install(&self) -> Option<&wow::WowInstall> {
+    pub fn get_selected_branch_install(&self) -> Option<&WoWInstall> {
         self.find_wow_branch(self.selected_branch.as_ref()?)
     }
 
@@ -271,7 +269,7 @@ impl ChronoBindApp {
     /// Get the `WoW` installation for the character at the given index.
     #[inline]
     #[must_use]
-    pub fn get_wow_branch_for_character(&self, index: usize) -> Option<&wow::WowInstall> {
+    pub fn get_wow_branch_for_character(&self, index: usize) -> Option<&WoWInstall> {
         let character = self.characters.get(index)?;
         self.find_wow_branch(&character.character.branch)
     }
@@ -908,8 +906,8 @@ impl ChronoBindApp {
     }
 }
 
-impl<'a> From<(&'a Character, &'a wow::WowInstall)> for backend::CharacterWithInstall<'a> {
-    fn from(val: (&'a Character, &'a wow::WowInstall)) -> Self {
+impl<'a> From<(&'a Character, &'a WoWInstall)> for backend::CharacterWithInstall<'a> {
+    fn from(val: (&'a Character, &'a WoWInstall)) -> Self {
         backend::CharacterWithInstall {
             character: &val.0.character,
             install: val.1,
@@ -990,7 +988,11 @@ fn perform_character_restore_from(
 }
 
 /// Perform the character restore operation.
-fn restore_from_backup(dest_char: CharacterWithInstall, backup: &WowBackup, mock: bool) -> bool {
+fn restore_from_backup(
+    dest_char: CharacterWithInstall,
+    backup: &WoWCharacterBackup,
+    mock: bool,
+) -> bool {
     log::info!(
         "Restoring backup `{}` for character {} on branch {}",
         backup.formatted_name(),

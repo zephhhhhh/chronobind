@@ -8,7 +8,7 @@ use zip::{
 use crate::{
     files::AnyResult,
     tui_log::mock_prefix,
-    wow::{WowBackup, WowCharacter, WowInstall},
+    wow::{WoWCharacter, WoWCharacterBackup, WoWInstall},
 };
 
 use std::path::PathBuf;
@@ -66,15 +66,15 @@ pub fn get_backup_name_from(
 /// Generate a backup file name for the given `WoW` character.
 #[inline]
 #[must_use]
-pub fn get_backup_name(character: &WowCharacter, paste: bool, pinned: bool) -> String {
+pub fn get_backup_name(character: &WoWCharacter, paste: bool, pinned: bool) -> String {
     get_backup_name_from(&character.name, Local::now(), paste, pinned)
 }
 
 /// A structure representing a `WoW` character along with its associated install.
 #[derive(Debug, Clone)]
 pub struct CharacterWithInstall<'a> {
-    pub character: &'a WowCharacter,
-    pub install: &'a WowInstall,
+    pub character: &'a WoWCharacter,
+    pub install: &'a WoWInstall,
 }
 
 impl CharacterWithInstall<'_> {
@@ -303,7 +303,11 @@ pub fn restore_backup(
 /// Change the pinned status of a backup for the given `WoW` character at the specified index.
 /// # Errors
 /// Returns an error if any file operations fail.
-pub fn change_backup_pin_state(backup: &WowBackup, pinned: bool, mock_mode: bool) -> AnyResult<()> {
+pub fn change_backup_pin_state(
+    backup: &WoWCharacterBackup,
+    pinned: bool,
+    mock_mode: bool,
+) -> AnyResult<()> {
     if backup.is_pinned == pinned {
         log::debug!(
             "Pinned state is already `{pinned}` on backup `{}` no change needed.",
@@ -341,7 +345,7 @@ pub fn change_backup_pin_state(backup: &WowBackup, pinned: bool, mock_mode: bool
 /// Toggle the pinned status of a backup for the given `WoW` character at the specified index.
 /// # Errors
 /// Returns an error if any file operations fail.
-pub fn toggle_backup_pin(backup: &WowBackup, mock_mode: bool) -> AnyResult<()> {
+pub fn toggle_backup_pin(backup: &WoWCharacterBackup, mock_mode: bool) -> AnyResult<()> {
     let new_pinned = !backup.is_pinned;
     change_backup_pin_state(backup, new_pinned, mock_mode)
 }
@@ -355,7 +359,7 @@ pub fn manage_character_backups(
     max_auto_backups: usize,
     mock_mode: bool,
 ) -> AnyResult<usize> {
-    let mut auto_backups: Vec<WowBackup> = character.character.unpinned_auto_backups();
+    let mut auto_backups: Vec<WoWCharacterBackup> = character.character.unpinned_auto_backups();
 
     log::debug!(
         "Character `{}` has {} unpinned automatic backups, total backups: {}.",
@@ -398,7 +402,7 @@ pub fn manage_character_backups(
 /// # Errors
 /// Returns an error if any file operations fail.
 pub fn delete_backup_file(
-    backup: &WowBackup,
+    backup: &WoWCharacterBackup,
     auto_removed: bool,
     mock_mode: bool,
 ) -> AnyResult<bool> {
