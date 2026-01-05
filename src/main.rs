@@ -34,7 +34,7 @@ use crate::palette::{ENTER_SYMBOL, STD_BG, STD_FG};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
-use crate::popups::confirm_popup::{CONFIRM_POPUP_ID, ConfirmationPopup};
+use crate::popups::confirm_popup::ConfirmationPopup;
 use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
 use crate::ui::messages::{AppMessage, ConfirmActionText, PopupMessage};
@@ -161,13 +161,9 @@ pub struct ChronoBindApp {
     /// Console output widget.
     console_widget: ConsoleWidget,
 
-    /// The previous input mode before opening a popup.
-    popup_previous_input: Option<InputMode>,
-    /// Current popup, if any.
-    popup: Option<PopupPtr>,
-
-    /// Confirmation popup, if any.
-    confirm_popup: Option<ConfirmationPopup>,
+    /// Stack of opened popups.
+    /// The last popup in the stack is the active one.
+    popup_stack: Vec<(PopupPtr, Option<InputMode>)>,
 }
 
 impl ChronoBindApp {
@@ -204,9 +200,7 @@ impl ChronoBindApp {
             main_ui: MainCharacterUI::new(),
             console_widget: ConsoleWidget::new(),
 
-            popup_previous_input: None,
-            popup: None,
-            confirm_popup: None,
+            popup_stack: Vec::new(),
         };
 
         let branch_to_load = app
@@ -606,19 +600,14 @@ impl ChronoBindApp {
         let Some(popup) = self.active_popup_mut() else {
             return false;
         };
-        let popup_id = popup.popup_identifier();
         let blocking = popup.handle_event(ev);
-        let closing = popup.should_close();
-        if let Some(commands) = popup.commands() {
+        let commands = popup.commands();
+        if popup.should_close() {
+            self.close_popup();
+        }
+        if let Some(commands) = commands {
             for command in commands {
                 self.handle_popup_message(&command);
-            }
-        }
-        if closing {
-            if popup_id == CONFIRM_POPUP_ID {
-                self.close_confirmation_popup();
-            } else {
-                self.close_popup();
             }
         }
         blocking
@@ -657,11 +646,8 @@ impl ChronoBindApp {
         self.draw_main_ui(main_layout_chunks[1], frame.buffer_mut());
         self.bottom_bar(main_layout_chunks[2], frame.buffer_mut());
 
-        if let Some(popup) = &mut self.popup {
+        for (popup, _) in &mut self.popup_stack {
             popup.render(frame);
-        }
-        if let Some(confirm_popup) = &mut self.confirm_popup {
-            confirm_popup.render(frame);
         }
     }
 
@@ -789,61 +775,54 @@ impl ChronoBindApp {
     #[inline]
     #[must_use]
     pub fn active_popup_mut(&mut self) -> Option<&mut (dyn Popup + Send + Sync)> {
-        if let Some(popup) = &mut self.confirm_popup {
-            Some(popup)
-        } else if let Some(popup) = &mut self.popup {
-            Some(popup.as_mut())
-        } else {
-            None
-        }
+        Some(self.popup_stack.last_mut()?.0.as_mut())
     }
 
     /// Get a reference to the active popup, or confirmation popup if any.
     #[inline]
     #[must_use]
     pub fn active_popup(&self) -> Option<&(dyn Popup + Send + Sync)> {
-        self.confirm_popup.as_ref().map_or_else(
-            || self.popup.as_ref().map(std::convert::AsRef::as_ref),
-            |popup| Some(popup),
-        )
-    }
-
-    /// Set the input mode to popup, saving the previous mode, if not already set.
-    const fn set_popup_input(&mut self) {
-        if self.popup_previous_input.is_none() {
-            self.popup_previous_input = Some(self.input_mode);
-        }
-        self.input_mode = InputMode::Popup;
-    }
-
-    /// Restore the input mode from before the popup was opened.
-    fn restore_input_from_popup(&mut self) {
-        self.input_mode = self.popup_previous_input.take().unwrap_or_default();
+        Some(self.popup_stack.last()?.0.as_ref())
     }
 
     /// Open a popup menu with the given state.
     pub fn open_popup<T: Popup + Send + Sync + 'static>(&mut self, popup: T) {
-        self.popup = Some(Box::new(popup));
-        self.set_popup_input();
+        let stored_input_mode = if self.popup_stack.is_empty() {
+            Some(self.input_mode)
+        } else {
+            None
+        };
+        self.popup_stack.push((Box::new(popup), stored_input_mode));
+        self.input_mode = InputMode::Popup;
     }
 
     /// Close the current popup, restoring previous input mode.
     pub fn close_popup(&mut self) {
-        let (popup_id, should_close) = if let Some(popup) = &self.popup {
-            (popup.popup_identifier().to_string(), popup.should_close())
-        } else {
-            log::warn!("No popup to close");
-            return;
-        };
+        let (popup_id, previous_input, should_close) =
+            if let Some((popup, previous_input)) = self.popup_stack.last() {
+                (
+                    popup.popup_identifier().to_string(),
+                    *previous_input,
+                    popup.should_close(),
+                )
+            } else {
+                log::warn!("No popup to close");
+                return;
+            };
         log::debug!("Closing popup: {popup_id} (should_close: {should_close})");
-        self.restore_input_from_popup();
-        self.popup = None;
+        if let Some(previous_input) = previous_input {
+            log::info!("Restoring input mode to: {previous_input:?}");
+            self.input_mode = previous_input;
+        } else {
+            log::info!("Not restoring input mode.");
+        }
+        self.popup_stack.pop();
     }
 
     /// Send a message to the current popup.
     #[inline]
     pub fn send_popup_message(&mut self, message: &PopupMessage) {
-        if let Some(popup) = &mut self.popup {
+        if let Some(popup) = &mut self.active_popup_mut() {
             popup.process_message(message);
         }
     }
@@ -854,15 +833,7 @@ impl ChronoBindApp {
         action: AppMessage,
         action_line: Option<ConfirmActionText>,
     ) {
-        self.confirm_popup = Some(ConfirmationPopup::new(action, action_line));
-    }
-
-    /// Close the confirmation popup.
-    pub fn close_confirmation_popup(&mut self) {
-        self.confirm_popup = None;
-        if self.popup.is_none() {
-            self.restore_input_from_popup();
-        }
+        self.open_popup(ConfirmationPopup::new(action, action_line));
     }
 
     /// Show the backup options popup for the given character index.

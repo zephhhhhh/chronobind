@@ -186,9 +186,11 @@ fn capitalise(s: &str) -> String {
 }
 
 /// Name of the user directory for `WoW` settings.
-const USER_DIR: &str = "WTF";
+pub const USER_DIR: &str = "WTF";
+/// Name of the user directory for `WoW` settings.
+pub const INTERFACE_DIR: &str = "Interface";
 /// Name of the account directory within the `WoW` user settings.
-const ACCOUNT_DIR: &str = "Account";
+pub const ACCOUNT_DIR: &str = "Account";
 /// Name of the `SavedVariables` directory within the `WoW` user settings.
 pub const SAVED_VARIABLES_DIR: &str = "SavedVariables";
 
@@ -223,6 +225,14 @@ impl WoWInstall {
     pub fn get_wtf_path(&self) -> PathBuf {
         let install_path = self.get_branch_path();
         install_path.join(USER_DIR)
+    }
+
+    /// Returns the path to the interface directory for this installation.
+    #[inline]
+    #[must_use]
+    pub fn get_inteface_path(&self) -> PathBuf {
+        let install_path = self.get_branch_path();
+        install_path.join(INTERFACE_DIR)
     }
 
     /// Returns the path to the user accounts settings directory for this installation.

@@ -102,7 +102,7 @@ impl Popup for BackupPopup {
                 if let Some(selected) = self.state.selected() {
                     match selected {
                         Self::MANAGE_BACKUPS_IDX => {
-                            self.push_command(BackupPopupCommand::ManageBackups);
+                            self.push_command_close(BackupPopupCommand::ManageBackups);
                         }
                         Self::BACKUP_SELECTED_IDX => {
                             self.push_command_close(BackupPopupCommand::BackupSelectedFiles);
@@ -111,11 +111,13 @@ impl Popup for BackupPopup {
                             self.push_command_close(BackupPopupCommand::BackupAllFiles);
                         }
                         Self::RESTORE_FROM_BACKUP_IDX => {
-                            self.push_command(BackupPopupCommand::RestoreFromBackup);
+                            self.push_command_close(BackupPopupCommand::RestoreFromBackup);
                         }
                         Self::RESTORE_FROM_COPIED_IDX => {
                             if self.copied_character.is_some() {
-                                self.push_command(BackupPopupCommand::RestoreFromCopiedBackups);
+                                self.push_command_close(
+                                    BackupPopupCommand::RestoreFromCopiedBackups,
+                                );
                             } else {
                                 log::warn!("No copied character to restore from.");
                             }
