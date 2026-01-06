@@ -7,6 +7,7 @@ pub use colours::*;
 
 use crate::terminal::BETTER_SYMBOLS;
 
+// #[cfg(all(feature = "better-colours", target_os="windows"))]
 #[cfg(feature = "better-colours")]
 mod colours {
     use ratatui::style::Color;
@@ -22,7 +23,8 @@ mod colours {
     pub const SPECIAL_FG: Color = SPECIAL_WHITE;
 
     pub const STD_FG: Color = Color::White;
-    pub const STD_BG: Color = Color::Black;
+    pub const STD_FG_INVERT: Color = Color::Black;
+    pub const STD_BG: Color = Color::Reset;
 
     // Log level colours..
     pub const LOG_ERROR_FG: Color = Color::Rgb(230, 0, 0);
@@ -51,6 +53,7 @@ mod colours {
     pub const HEART_FG: Color = Color::Rgb(186, 117, 170);
 }
 
+// #[cfg(not(all(feature = "better-colours", target_os="windows")))]
 #[cfg(not(feature = "better-colours"))]
 mod colours {
     use ratatui::style::Color;
@@ -61,7 +64,8 @@ mod colours {
     pub const SPECIAL_FG: Color = Color::Indexed(189);
 
     pub const STD_FG: Color = Color::White;
-    pub const STD_BG: Color = Color::Black;
+    pub const STD_FG_INVERT: Color = Color::Black;
+    pub const STD_BG: Color = Color::Reset;
 
     // Log level colours..
     pub const LOG_ERROR_FG: Color = Color::Red;

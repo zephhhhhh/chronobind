@@ -31,7 +31,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::backend::task::IOTask;
 use crate::config::ChronoBindAppConfig;
-use crate::palette::{ENTER_SYMBOL, STD_BG, STD_FG};
+use crate::palette::{ENTER_SYMBOL, STD_BG, STD_FG, STD_FG_INVERT};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
@@ -833,7 +833,9 @@ impl ChronoBindApp {
                 .join(BOTTOM_BAR_SEP)
         };
 
-        let status_line = Line::from(format!(" {final_text}")).fg(STD_BG).bg(STD_FG);
+        let status_line = Line::from(format!(" {final_text}"))
+            .fg(STD_FG_INVERT)
+            .bg(STD_FG);
         status_line.render(area, buf);
     }
 }

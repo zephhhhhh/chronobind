@@ -13,8 +13,10 @@ mod productdb {
 }
 
 // Locating WoW installs..
-// TODO: Platform independence..
 /// Path to the Battle.net Agent product database file.
+#[cfg(target_os = "macos")]
+const BNET_AGENT_PRODUCT_DB_PATH: &str = "/Users/Shared/Battle.net//Agent//product.db";
+#[cfg(target_os = "windows")]
 const BNET_AGENT_PRODUCT_DB_PATH: &str = "C:\\ProgramData\\Battle.net\\Agent\\product.db";
 /// Identifier prefix for World of Warcraft product codes.
 const WOW_PRODUCT_CODE_IDENT: &str = "wow";
