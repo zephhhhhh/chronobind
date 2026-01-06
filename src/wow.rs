@@ -61,6 +61,22 @@ impl WoWInstall {
         install_path.join(self.get_product_dir())
     }
 
+    /// Returns the path to the `ChronoBind` directory for this installation.
+    #[inline]
+    #[must_use]
+    pub fn get_chronobind_dir(&self) -> PathBuf {
+        let branch_path = self.get_branch_path();
+        branch_path.join(CHRONOBIND_DIR)
+    }
+
+    /// Returns the path to the `ChronoBind` backups directory for this installation.
+    #[inline]
+    #[must_use]
+    pub fn get_character_backups_dir(&self) -> PathBuf {
+        let chronobind_dir = self.get_chronobind_dir();
+        chronobind_dir.join(CHARACTER_BACKUPS_DIR)
+    }
+
     /// Returns a formatted version of the branch name for display purposes.
     #[inline]
     pub fn display_branch_name(&self) -> String {
@@ -444,6 +460,10 @@ const FRIENDLY_NAMES: &[(&str, &str)] = &[
     ("AddOns.txt", "Enabled Addons"),
 ];
 
+/// Name of the `ChronoBind` directory
+pub const CHRONOBIND_DIR: &str = "ChronoBind";
+/// Name of the `ChronoBind` directory
+pub const CHARACTER_BACKUPS_DIR: &str = "Characters";
 /// Name of the backups directory within a character's folder.
 pub const BACKUPS_DIR_NAME: &str = "Backups";
 
@@ -471,7 +491,10 @@ impl WoWCharacter {
     #[inline]
     #[must_use]
     pub fn get_backups_dir(&self, install: &WoWInstall) -> PathBuf {
-        self.get_character_path(install).join(BACKUPS_DIR_NAME)
+        let path_segments = [&self.account, &self.realm, &self.name];
+        path_segments
+            .into_iter()
+            .fold(install.get_character_backups_dir(), |acc, p| acc.join(p))
     }
 
     /// Maps all files in the character's directory and addon directory.
