@@ -60,9 +60,9 @@ pub fn ensure_directory(path: &Path, mock_mode: bool) -> AnyResult<()> {
 /// files and folders in `base_path`.
 /// # Errors
 /// Returns an error if any I/O operation fails.
-pub fn walk_dir_recursive(
+pub fn walk_dir_recursive<T: AsRef<Path>>(
     base_path: &Path,
-    excluded_dirs: &[impl AsRef<Path>],
+    excluded_dirs: &[T],
 ) -> AnyResult<Vec<PathBuf>> {
     fn walk_dir_impl(
         path: &Path,

@@ -4,7 +4,7 @@ use crate::{
     ChronoBindAppConfig,
     ui::{KeyCodeExt, messages::AppMessage},
     widgets::popup::{Popup, popup_block, popup_list_no_block},
-    wow::{WoWInstall, WoWInstalls},
+    wow::WoWInstalls,
 };
 
 use ratatui::{
@@ -21,6 +21,8 @@ use ratatui::{
 pub enum OptionsPopupCommand {
     /// Command to update the app configuration with new settings.
     UpdateConfiguration(ChronoBindAppConfig),
+    /// Command to export all backups.
+    ExportBackups,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -29,6 +31,7 @@ pub enum OptionKind {
     MockMode,
     MaximumAutoBackups,
     PreferredBranch,
+    ExportCurrentBranch,
 }
 
 impl OptionKind {
@@ -40,6 +43,7 @@ impl OptionKind {
             Self::MockMode,
             Self::MaximumAutoBackups,
             Self::PreferredBranch,
+            Self::ExportCurrentBranch,
         ]
     }
 
@@ -52,6 +56,7 @@ impl OptionKind {
             Self::MockMode => "Mock mode (Don't perform file operations)",
             Self::MaximumAutoBackups => "Maximum allowed automatic backups",
             Self::PreferredBranch => "Preferred WoW branch",
+            Self::ExportCurrentBranch => "Export backups from current branch",
         }
     }
 
@@ -62,6 +67,7 @@ impl OptionKind {
         &self,
         config: &ChronoBindAppConfig,
         installs: &WoWInstalls,
+        selected_branch: Option<&String>,
         hovered: bool,
     ) -> Line<'static> {
         match self {
@@ -87,6 +93,22 @@ impl OptionKind {
                     hovered,
                 ))
             }
+            Self::ExportCurrentBranch => {
+                if let Some(selected_branch) = selected_branch
+                    && let Some(selected_install) = installs.find_branch(selected_branch)
+                {
+                    Line::from(highlight_str(
+                        format!(
+                            "{} ({})",
+                            self.title(),
+                            selected_install.display_branch_name()
+                        ),
+                        hovered,
+                    ))
+                } else {
+                    Line::from(highlight_str(format!("{}: None", self.title()), hovered))
+                }
+            }
         }
     }
 
@@ -101,6 +123,9 @@ impl OptionKind {
             Self::MaximumAutoBackups | Self::PreferredBranch => {
                 vec!["←/→: Adjust".to_string()]
             }
+            Self::ExportCurrentBranch => {
+                vec![format!("{ENTER_SYMBOL}/→/Space: Export Backups")]
+            }
         }
     }
 }
@@ -110,6 +135,8 @@ impl OptionKind {
 pub struct OptionsPopup {
     /// The current application configuration.
     pub configuration: ChronoBindAppConfig,
+    /// The currently selected `WoW` branch.
+    pub selected_branch: Option<String>,
     /// Detected `WoW` branches.
     pub branches: WoWInstalls,
 
@@ -124,11 +151,16 @@ pub struct OptionsPopup {
 
 impl OptionsPopup {
     #[must_use]
-    pub fn new(config: ChronoBindAppConfig, branches: WoWInstalls) -> Self {
+    pub fn new(
+        config: ChronoBindAppConfig,
+        branches: WoWInstalls,
+        selected_branch: Option<String>,
+    ) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         Self {
             configuration: config,
+            selected_branch,
             branches,
 
             close: false,
@@ -173,6 +205,9 @@ impl OptionsPopup {
                 self.configuration.mock_mode = !self.configuration.mock_mode;
                 config_changed = true;
             }
+            OptionKind::ExportCurrentBranch => {
+                self.push_command(OptionsPopupCommand::ExportBackups);
+            }
             _ => {}
         }
 
@@ -193,7 +228,7 @@ impl OptionsPopup {
             .iter()
             .enumerate()
             .map(|(i, option)| {
-                option.get_line(&self.configuration, &self.branches, i == selected_idx)
+                option.get_line(&self.configuration, &self.branches, self.selected_branch.as_ref(), i == selected_idx)
             })
             .collect::<Vec<Line>>();
 
@@ -288,15 +323,6 @@ impl OptionsPopup {
             install.branch_ident.to_lowercase() == selected_ident.to_lowercase()
         })?;
         Some(i)
-    }
-
-    /// Find a `WoW` installation by its branch identifier.
-    #[inline]
-    #[must_use]
-    pub fn find_wow_branch(&self, branch: &str) -> Option<&WoWInstall> {
-        self.branches
-            .iter()
-            .find(|install| install.branch_ident.to_lowercase() == branch.to_lowercase())
     }
 }
 

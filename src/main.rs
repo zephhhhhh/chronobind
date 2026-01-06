@@ -580,13 +580,34 @@ impl ChronoBindApp {
                 log::info!("Switching to branch: {chosen_branch}");
                 self.set_selected_branch(chosen_branch);
             }
-            AppMessage::Options(OptionsPopupCommand::UpdateConfiguration(new_config)) => {
-                log::debug!("Updating application configuration.");
-                self.config = new_config.clone();
-                self.config.save_to_file().unwrap_or_else(|e| {
-                    log::error!("Failed to save configuration file: {e}");
-                });
-            }
+            AppMessage::Options(cmd) => match cmd {
+                OptionsPopupCommand::UpdateConfiguration(new_config) => {
+                    log::debug!("Updating application configuration.");
+                    self.config = new_config.clone();
+                    self.config.save_to_file().unwrap_or_else(|e| {
+                        log::error!("Failed to save configuration file: {e}");
+                    });
+                }
+                OptionsPopupCommand::ExportBackups => {
+                    if let Some(selected_install) = self.get_selected_branch_install() {
+                        let export_filename = format!(
+                            "{}_{}.{}",
+                            backend::DEFAULT_EXPORT_FILENAME,
+                            backend::date_now_as_filename_timestamp(),
+                            backend::BACKUP_FILE_EXTENSION
+                        );
+                        let final_export_path = selected_install.install_path_join(export_filename);
+                        if let Some(task) = backend::export_chronobind_backups_for_install(
+                            selected_install,
+                            final_export_path,
+                            self.config.mock_mode,
+                        ) {
+                            log::info!("Starting export task..");
+                            self.open_popup(ProgressPopup::new(task));
+                        }
+                    }
+                }
+            },
             AppMessage::BackupManager(char_idx, cmd) => {
                 match cmd {
                     BackupManagerPopupCommand::DeleteBackup(backup_index) => {
@@ -946,6 +967,7 @@ impl ChronoBindApp {
         self.open_popup(OptionsPopup::new(
             self.config.clone(),
             self.wow_installations.clone(),
+            self.selected_branch.clone(),
         ));
     }
 }

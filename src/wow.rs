@@ -90,6 +90,15 @@ impl WoWInstall {
                 .join(" ")
         }
     }
+
+    /// Joins a given path segment to the installation path, returning the result.
+    /// (Does not modify the original installation path.)
+    #[inline]
+    #[must_use]
+    pub fn install_path_join<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+        let install_path = PathBuf::from(&self.install_path);
+        install_path.join(path)
+    }
 }
 
 /// Collection of located `WoW` installations.

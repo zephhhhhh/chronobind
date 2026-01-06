@@ -89,6 +89,8 @@ pub trait BackendTask: Debug + Send + Sync {
     /// Returns the next task to be completed, if applicable.
     #[must_use]
     fn next_task(&mut self) -> Option<BackendTaskPtr>;
+    /// Adds a task to be executed after the current chain has been completed.
+    fn add_next(&mut self, task: BackendTaskPtr);
 
     /// Pushes a message to be sent after all tasks are complete, if applicable.
     fn add_on_all_complete(&mut self, msg: AppMessage);
@@ -165,6 +167,7 @@ impl SingleUseTaskFn {
 }
 
 /// Backend IO task.
+#[must_use]
 pub struct IOTask {
     /// Function to create the task thread.
     task_function: SingleUseTaskFn,
@@ -201,7 +204,6 @@ impl IOTask {
     pub const DEFAULT_NAME: &'static str = "I/O Task";
 
     /// Creates a new `IOTask` with the provided MPSC receiver.
-    #[must_use]
     pub fn new<T>(task_fn: T) -> Self
     where
         T: FnOnce(&MPSCSender<IOProgress>) -> AnyResult<()> + Send + Sync + 'static,
@@ -218,37 +220,38 @@ impl IOTask {
     }
 
     /// Adds a task to be executed after this has been completed.
-    #[must_use]
     pub fn then<T: BackendTask + 'static>(mut self, next: T) -> Self {
         self.next = Some(Box::new(next));
         self
     }
 
     /// Adds a message to be sent after task completion.
-    #[must_use]
     pub fn on_completion(mut self, msg: AppMessage) -> Self {
         self.add_after_message(msg);
         self
     }
 
     /// Adds a message to be sent after all tasks are complete.
-    #[must_use]
     pub fn on_all_complete(mut self, msg: AppMessage) -> Self {
         self.add_on_all_complete(msg);
         self
     }
 
     /// Assign a name to the task.
-    #[must_use]
     pub fn name<T: Into<String>>(mut self, name: T) -> Self {
         self.name = Some(name.into());
         self
     }
 
     /// Assign a label to the task.
-    #[must_use]
     pub fn label<T: Into<String>>(mut self, label: T) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Adds a task to be executed after all tasks in this chain have been completed.
+    pub fn with_back<T: BackendTask + 'static>(mut self, next: T) -> Self {
+        self.add_next(Box::new(next));
         self
     }
 }
@@ -324,6 +327,13 @@ impl BackendTask for IOTask {
 
     fn next_task(&mut self) -> Option<BackendTaskPtr> {
         std::mem::take(&mut self.next)
+    }
+    fn add_next(&mut self, task: BackendTaskPtr) {
+        if let Some(next) = self.next.as_mut() {
+            next.as_mut().add_next(task);
+        } else {
+            self.next = Some(task);
+        }
     }
 
     fn add_on_all_complete(&mut self, msg: AppMessage) {

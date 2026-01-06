@@ -1,20 +1,20 @@
 pub mod task;
+pub mod zip_rw;
 
-use std::sync::mpsc::Sender as MPSCSender;
+use std::{path::Path, sync::mpsc::Sender as MPSCSender};
 
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use itertools::Itertools;
-use zip::{
-    ZipWriter,
-    read::ZipArchive,
-    write::{FileOptions, FullFileOptions},
-};
+use zip::read::ZipArchive;
 
 use crate::{
-    backend::task::{IOProgress, IOTask},
+    backend::{
+        task::{IOProgress, IOTask},
+        zip_rw::ChronoZipWriter,
+    },
     files::AnyResult,
     tui_log::mock_prefix,
-    wow::{WoWCharacter, WoWCharacterBackup, WoWInstall},
+    wow::{WoWCharacter, WoWCharacterBackup, WoWInstall, WoWInstalls},
 };
 
 use std::fs as filesystem;
@@ -32,6 +32,9 @@ pub const BACKUP_FILE_TIME_FORMAT: &str = "%Y%m%d-%H%M%S";
 /// Display time format used in backup listings.
 pub const DISPLAY_TIME_FORMAT: &str = "%d/%m/%y %H:%M";
 
+/// Default filename for backup exports.
+pub const DEFAULT_EXPORT_FILENAME: &str = "chronobind_export";
+
 /// File extension for backup files.
 pub const BACKUP_FILE_EXTENSION: &str = "zip";
 
@@ -40,6 +43,32 @@ pub const BACKUP_FILE_EXTENSION: &str = "zip";
 #[must_use]
 pub fn os_str_to_string(s: &std::ffi::OsStr) -> String {
     s.to_string_lossy().into_owned()
+}
+
+/// Convert an `OsStr` to a `String`, handling possible invalid UTF-8.
+#[inline]
+#[must_use]
+pub fn cmp_extension<P: AsRef<Path>, S: AsRef<str>>(path: P, extension: S) -> bool {
+    path.as_ref()
+        .extension()
+        .map(os_str_to_string)
+        .unwrap_or_default()
+        .to_lowercase()
+        == extension.as_ref().to_lowercase()
+}
+
+/// Format a timestamp for use in a filename.
+#[inline]
+#[must_use]
+pub fn format_timestamp_for_filename(timestamp: DateTime<Local>) -> String {
+    timestamp.format(BACKUP_FILE_TIME_FORMAT).to_string()
+}
+
+/// Get the current date and time formatted for use in a filename.
+#[inline]
+#[must_use]
+pub fn date_now_as_filename_timestamp() -> String {
+    format_timestamp_for_filename(Local::now())
 }
 
 /// Generate a backup file name for the given parameters.
@@ -51,7 +80,7 @@ pub fn get_backup_name_from(
     paste: bool,
     pinned: bool,
 ) -> String {
-    let ts_str = timestamp.format(BACKUP_FILE_TIME_FORMAT);
+    let ts_str = format_timestamp_for_filename(timestamp);
     format!(
         "{}_{}{}{}.{BACKUP_FILE_EXTENSION}",
         char_name,
@@ -132,27 +161,11 @@ fn backup_character_async_internal(
     let backup_file_name = get_backup_name(&src_char.character, paste, pinned);
     let backup_file_path = backup_dir.join(backup_file_name);
 
-    let options: FullFileOptions =
-        FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    let mut zip = if mock_mode {
-        log::debug!(
-            "Mock mode enabled, skipping creation of backup file at `{}`",
-            backup_file_path.display()
-        );
-        None
-    } else {
-        let file = filesystem::File::create(&backup_file_path)?;
-        Some(ZipWriter::new(file))
-    };
+    let mut zip = ChronoZipWriter::new(&backup_file_path, mock_mode)?;
 
     for (files_backed_up, file_path) in dir_iter.iter().enumerate() {
         let relative_path = file_path.strip_prefix(&char_path)?;
-        if let Some(zip) = zip.as_mut() {
-            zip.start_file(relative_path.to_string_lossy(), options.clone())?;
-
-            let mut f = filesystem::File::open(file_path)?;
-            std::io::copy(&mut f, zip)?;
-        }
+        zip.copy_file(relative_path.to_string_lossy(), file_path)?;
 
         log::info!("Backed up `{}`", relative_path.display());
         tx.send(IOProgress::Advanced {
@@ -161,9 +174,7 @@ fn backup_character_async_internal(
         })?;
     }
 
-    if let Some(zip) = zip.take() {
-        zip.finish()?;
-    }
+    zip.finish()?;
 
     log::debug!("Finished backup to `{}`", backup_file_path.display());
     tx.send(IOProgress::Finished)?;
@@ -174,7 +185,6 @@ fn backup_character_async_internal(
 /// Create a backup ZIP archive of the given `WoW` character's data.
 /// # Errors
 /// Returns an error if any file operations fail.
-#[must_use]
 pub fn backup_character_all_async(
     src_char: CharWithInstallLocal,
     paste: bool,
@@ -191,7 +201,6 @@ pub fn backup_character_all_async(
 /// files.
 /// # Errors
 /// Returns an error if any file operations fail.
-#[must_use]
 pub fn backup_character_selected_async(
     src_char: CharWithInstallLocal,
     selected_files: &[PathBuf],
@@ -210,7 +219,6 @@ pub fn backup_character_selected_async(
 /// Create a backup ZIP archive of the given `WoW` character's data, optionally with selected files.
 /// # Errors
 /// Returns an error if any file operations fail.
-#[must_use]
 pub fn backup_character_async(
     src_char: crate::ui::CharacterWithInstall<'_>,
     selected_files: Option<&[PathBuf]>,
@@ -276,7 +284,6 @@ fn paste_character_files_async_internal(
 /// - `src_character`: The source character from which files will be copied.
 /// - `selected_files`: A list of relative file paths to be copied.
 /// - `mock_mode`: If true, no actual file operations will be performed; only logging will occur.
-#[must_use]
 pub fn paste_character_files_async(
     dest_character: CharWithInstallLocal,
     src_character: CharWithInstallLocal,
@@ -343,7 +350,6 @@ pub fn extract_backup_name(backup_filestem: &str) -> Option<(String, DateTime<Lo
 /// Restore a backup for the given `WoW` character from the specified backup file path.
 /// # Errors
 /// Returns an error if any file operations fail.
-#[must_use]
 pub fn restore_backup_async(
     character: CharWithInstallLocal,
     backup_path: PathBuf,
@@ -544,4 +550,94 @@ pub fn delete_backup_file(
         );
     }
     Ok(!bad_removal)
+}
+
+/// Export chronobind backups for the given `WoW` install to the specified export path.
+/// All characters *MUST* belong to the given install.
+/// # Errors
+/// * If any file operations fail.
+/// * If any characters that do not belong to the given install are provided.
+#[must_use]
+pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
+    install: &WoWInstall,
+    export_path: P,
+    mock_mode: bool,
+) -> Option<IOTask> {
+    let final_zip_path = export_path.into();
+
+    log::info!(
+        "Exporting chronobind backups for install `{}` to `{}`",
+        install.display_branch_name(),
+        final_zip_path.display()
+    );
+
+    if !cmp_extension(&final_zip_path, BACKUP_FILE_EXTENSION) {
+        log::error!(
+            "Export path `{}` is not a `.{BACKUP_FILE_EXTENSION}` file, expected a file to create the export.",
+            final_zip_path.display()
+        );
+        return None;
+    }
+
+    let install_backup_path = install.get_character_backups_dir();
+
+    let task = IOTask::new(move |tx| {
+        let mut dir_iter = walk_dir_recursive::<&str>(&install_backup_path, &[])?;
+        dir_iter.retain(|p| cmp_extension(p, BACKUP_FILE_EXTENSION));
+        let total = dir_iter.len();
+
+        let mut zip = ChronoZipWriter::new(&final_zip_path, mock_mode)?;
+
+        for (backups_completed, current_backup_file) in dir_iter.iter().enumerate() {
+            let relative_path = current_backup_file.strip_prefix(&install_backup_path)?;
+            zip.copy_file(relative_path.to_string_lossy(), current_backup_file)?;
+
+            log::info!("Exported backup `{}`", relative_path.display());
+            tx.send(IOProgress::Advanced {
+                completed: backups_completed.saturating_add(1),
+                total,
+            })?;
+        }
+
+        zip.finish()?;
+
+        log::debug!(
+            "Finished exporting backups to `{}`",
+            install_backup_path.display()
+        );
+        tx.send(IOProgress::Finished)?;
+
+        Ok(())
+    })
+    .name(format!(
+        "Exporting backups from {}",
+        install.display_branch_name()
+    ));
+
+    Some(task)
+}
+
+pub fn export_all_chronobind_backups(
+    wow: WoWInstalls,
+    export_path: PathBuf,
+    mock_mode: bool,
+) -> IOTask {
+    todo!();
+}
+
+/// Options for what to back up in a complete `WoW` install backup.
+#[derive(Debug, Clone)]
+pub struct InstallBackupOptions {
+    /// Whether to backup the `WTF` folder.
+    pub backup_wtf: bool,
+    /// Whether to backup the `Interface` folder.
+    pub backup_interface: bool,
+}
+
+/// Create a backup of the given `WoW` install, backing up the selected contents of the install.
+pub fn backup_complete_install(
+    install: WoWInstall,
+    backup_options: InstallBackupOptions,
+) -> IOTask {
+    todo!()
 }
