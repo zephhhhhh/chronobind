@@ -14,6 +14,8 @@ use crate::{
 /// A message from a popup to the main application.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppMessage {
+    /// Command to perform backup management for the given character.
+    PerformBackupManagement(CharacterIndex),
     /// Commands from the backup popup.
     Backup(CharacterIndex, BackupPopupCommand),
     /// Commands from the restore from backup popup.

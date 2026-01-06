@@ -5,6 +5,7 @@ use crate::{
     popups::list_with_scrollbar,
     ui::{KeyCodeExt, messages::AppMessage},
     widgets::popup::{Popup, popup_block, popup_list},
+    wow::WoWCharacterBackup,
 };
 
 use itertools::Itertools;
@@ -20,8 +21,8 @@ use ratatui::{
 /// Different commands that can be issued from a restore popup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RestorePopupCommand {
-    /// Command to restore a backup at a specified index.
-    RestoreBackup(usize),
+    /// Command to restore a backup to the associated destination character.
+    RestoreBackup(WoWCharacterBackup),
 }
 
 /// Popup for restoring a backup for a character.
@@ -112,7 +113,8 @@ impl Popup for RestorePopup {
                 if let Some(selected) = self.state.selected()
                     && let Some(backup) = self.get_backup(selected).cloned()
                 {
-                    let command = self.get_command(RestorePopupCommand::RestoreBackup(selected));
+                    let command =
+                        self.get_command(RestorePopupCommand::RestoreBackup(backup.clone()));
                     let start_span =
                         Span::from(format!("Restore backup `{}` to ", backup.formatted_name()));
                     let dest_char_span = self.dest_char.0.display_span(true).bold();

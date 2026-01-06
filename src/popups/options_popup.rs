@@ -338,7 +338,7 @@ impl Popup for OptionsPopup {
                 Some(opt) => self.interact_with_option(opt),
                 _ => {}
             },
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char(' ') => {
                 if let Some(o) = selected_opt {
                     self.interact_with_option(o);
                 }

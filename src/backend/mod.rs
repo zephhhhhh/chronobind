@@ -1,4 +1,9 @@
+pub mod task;
+
+use std::sync::mpsc::Sender as MPSCSender;
+
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use itertools::Itertools;
 use zip::{
     ZipWriter,
     read::ZipArchive,
@@ -6,13 +11,14 @@ use zip::{
 };
 
 use crate::{
+    backend::task::{IOProgress, IOTask},
     files::AnyResult,
     tui_log::mock_prefix,
     wow::{WoWCharacter, WoWCharacterBackup, WoWInstall},
 };
 
+use std::fs as filesystem;
 use std::path::PathBuf;
-use std::{fs as filesystem, path::Path};
 
 use crate::files::{ensure_directory, walk_dir_recursive};
 
@@ -70,110 +76,209 @@ pub fn get_backup_name(character: &WoWCharacter, paste: bool, pinned: bool) -> S
     get_backup_name_from(&character.name, Local::now(), paste, pinned)
 }
 
-/// A structure representing a `WoW` character along with its associated install.
+/// A structure representing a `WoW` character along with its associated install,
+/// able to be owned locally and moved across threads.
 #[derive(Debug, Clone)]
-pub struct CharacterWithInstall<'a> {
-    pub character: &'a WoWCharacter,
-    pub install: &'a WoWInstall,
+pub struct CharWithInstallLocal {
+    pub character: WoWCharacter,
+    pub install: WoWInstall,
 }
 
-impl CharacterWithInstall<'_> {
+impl CharWithInstallLocal {
     /// Get the character's data path.
     #[must_use]
     pub fn get_character_path(&self) -> PathBuf {
-        self.character.get_character_path(self.install)
+        self.character.get_character_path(&self.install)
     }
 
     /// Get the character's backups directory path.
     #[must_use]
     pub fn get_backups_dir(&self) -> PathBuf {
-        self.character.get_backups_dir(self.install)
+        self.character.get_backups_dir(&self.install)
     }
 }
 
-/// Create a backup ZIP archive of the given `WoW` character's data.
-/// # Errors
-/// Returns an error if any file operations fail.
-pub fn backup_character(
-    character: &CharacterWithInstall,
+impl From<crate::ui::CharacterWithInstall<'_>> for CharWithInstallLocal {
+    fn from(ci: crate::ui::CharacterWithInstall<'_>) -> Self {
+        Self {
+            character: ci.0.character.clone(),
+            install: ci.1.clone(),
+        }
+    }
+}
+
+fn backup_character_async_internal(
+    tx: &MPSCSender<IOProgress>,
+    src_char: &CharWithInstallLocal,
+    selected_files: Option<&[PathBuf]>,
     paste: bool,
     pinned: bool,
-) -> AnyResult<PathBuf> {
-    let char_path = character.get_character_path();
-    let backup_dir = character.get_backups_dir();
-    ensure_directory(&backup_dir, false)?;
+    mock_mode: bool,
+) -> AnyResult<()> {
+    let char_path = src_char.get_character_path();
+    let backup_dir = src_char.get_backups_dir();
 
-    let backup_file_name = get_backup_name(character.character, paste, pinned);
+    ensure_directory(&backup_dir, mock_mode)?;
+
+    let mut dir_iter = walk_dir_recursive(&char_path, &[crate::wow::BACKUPS_DIR_NAME])?;
+    if let Some(selected) = selected_files {
+        let fully_qualified_paths: Vec<PathBuf> =
+            selected.iter().map(|p| char_path.join(p)).collect();
+        dir_iter.retain(|p| fully_qualified_paths.contains(p));
+    }
+
+    let total = dir_iter.len();
+    tx.send(IOProgress::Started { total })?;
+
+    let backup_file_name = get_backup_name(&src_char.character, paste, pinned);
     let backup_file_path = backup_dir.join(backup_file_name);
     let file = filesystem::File::create(&backup_file_path)?;
     let options: FullFileOptions =
         FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     let mut zip = ZipWriter::new(file);
 
-    for file_path in walk_dir_recursive(&char_path, &[crate::wow::BACKUPS_DIR_NAME])? {
+    for (files_backed_up, file_path) in dir_iter.iter().enumerate() {
         let relative_path = file_path.strip_prefix(&char_path)?;
         zip.start_file(relative_path.to_string_lossy(), options.clone())?;
-        let mut f = filesystem::File::open(&file_path)?;
-        std::io::copy(&mut f, &mut zip)?;
+
+        if !mock_mode {
+            let mut f = filesystem::File::open(file_path)?;
+            std::io::copy(&mut f, &mut zip)?;
+        }
 
         log::info!("Backed up `{}`", relative_path.display());
+        tx.send(IOProgress::Advanced {
+            completed: files_backed_up.saturating_add(1),
+            total,
+        })?;
     }
 
     zip.finish()?;
 
     log::debug!("Finished backup to `{}`", backup_file_path.display());
+    tx.send(IOProgress::Finished)?;
 
-    Ok(backup_file_path)
+    Ok(())
 }
 
-/// Create a backup ZIP archive of the given `WoW` character's, backing up only the selected
+/// Helper function to create a task thread for I/O operations.
+#[must_use]
+pub fn io_task_create<
+    F: FnOnce(&MPSCSender<IOProgress>) -> AnyResult<()> + Send + Sync + 'static,
+>(
+    task_fn: F,
+) -> IOTask {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || match task_fn(&tx) {
+        Ok(()) => (),
+        Err(e) => {
+            tx.send(IOProgress::Error(e.to_string())).ok();
+        }
+    });
+
+    IOTask::new(rx)
+}
+
+/// Create a backup ZIP archive of the given `WoW` character's data.
+/// # Errors
+/// Returns an error if any file operations fail.
+#[must_use]
+pub fn backup_character_all_async(
+    src_char: CharWithInstallLocal,
+    paste: bool,
+    pinned: bool,
+    mock_mode: bool,
+) -> IOTask {
+    io_task_create(move |tx| {
+        backup_character_async_internal(tx, &src_char, None, paste, pinned, mock_mode)
+    })
+    .name("Backing up all files")
+}
+
+/// Create a backup ZIP archive of the given `WoW` character's data, backing up only the selected
 /// files.
 /// # Errors
 /// Returns an error if any file operations fail.
-pub fn backup_character_files(
-    character: &CharacterWithInstall,
+#[must_use]
+pub fn backup_character_selected_async(
+    src_char: CharWithInstallLocal,
     selected_files: &[PathBuf],
     paste: bool,
     pinned: bool,
-) -> AnyResult<PathBuf> {
-    let char_path = character.get_character_path();
-    let backup_dir = char_path.join(crate::wow::BACKUPS_DIR_NAME);
-    ensure_directory(&backup_dir, false)?;
+    mock_mode: bool,
+) -> IOTask {
+    let sel_files = selected_files.to_vec();
 
-    let backup_file_name = get_backup_name(character.character, paste, pinned);
-    let backup_file_path = backup_dir.join(backup_file_name);
-    let file = filesystem::File::create(&backup_file_path)?;
-    let options: FullFileOptions =
-        FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    let mut zip = ZipWriter::new(file);
-
-    let fully_qualified_paths: Vec<PathBuf> =
-        selected_files.iter().map(|p| char_path.join(p)).collect();
-
-    for file_path in walk_dir_recursive(&char_path, &[crate::wow::BACKUPS_DIR_NAME])? {
-        if !fully_qualified_paths.contains(&file_path) {
-            continue;
-        }
-        let relative_path = file_path.strip_prefix(&char_path)?;
-        zip.start_file(relative_path.to_string_lossy(), options.clone())?;
-        let mut f = filesystem::File::open(&file_path)?;
-        std::io::copy(&mut f, &mut zip)?;
-
-        log::info!("Backed up `{}`", relative_path.display());
-    }
-
-    zip.finish()?;
-
-    log::info!(
-        "Finished selective backup to `{}`",
-        backup_file_path.display()
-    );
-
-    Ok(backup_file_path)
+    io_task_create(move |tx| {
+        backup_character_async_internal(tx, &src_char, Some(&sel_files), paste, pinned, mock_mode)
+    })
+    .name("Backing up selected files")
 }
 
-/// Create a backup ZIP archive of the given `WoW` character's, backing up only the selected
-/// files.
+/// Create a backup ZIP archive of the given `WoW` character's data, optionally with selected files.
+/// # Errors
+/// Returns an error if any file operations fail.
+#[must_use]
+pub fn backup_character_async(
+    src_char: crate::ui::CharacterWithInstall<'_>,
+    selected_files: Option<&[PathBuf]>,
+    paste: bool,
+    pinned: bool,
+    mock_mode: bool,
+) -> IOTask {
+    selected_files.map_or_else(
+        || backup_character_all_async(src_char.into(), paste, pinned, mock_mode),
+        |selected| {
+            backup_character_selected_async(src_char.into(), selected, paste, pinned, mock_mode)
+        },
+    )
+}
+
+fn paste_character_files_async_internal(
+    dest_character: CharWithInstallLocal,
+    src_character: CharWithInstallLocal,
+    selected_files: &[PathBuf],
+    mock_mode: bool,
+) -> IOTask {
+    let sel_files = selected_files.to_vec();
+
+    io_task_create(move |tx| {
+        let dest_char_path = dest_character.get_character_path();
+        let src_char_path = src_character.get_character_path();
+
+        let total = sel_files.len();
+        tx.send(IOProgress::Started { total })?;
+
+        for (files_copied, relative_path) in sel_files.iter().enumerate() {
+            let src_file_path = src_char_path.join(relative_path);
+            let dest_file_path = dest_char_path.join(relative_path);
+
+            if !mock_mode {
+                filesystem::copy(&src_file_path, &dest_file_path)?;
+            }
+
+            log::info!(
+                "{}Copied `{}` to `{}`",
+                mock_prefix(mock_mode),
+                relative_path.display(),
+                dest_file_path.display()
+            );
+            tx.send(IOProgress::Advanced {
+                completed: files_copied.saturating_add(1),
+                total,
+            })?;
+        }
+
+        tx.send(IOProgress::Finished)?;
+
+        Ok(())
+    })
+    .name("Pasting character files")
+}
+
+/// Paste the selected files from the source `WoW` character to the destination `WoW` character.
+/// Will create a backup of the replaced files in the destination character before pasting.
 /// # Errors
 /// Returns an error if any file operations fail.
 /// # Parameters
@@ -181,43 +286,38 @@ pub fn backup_character_files(
 /// - `src_character`: The source character from which files will be copied.
 /// - `selected_files`: A list of relative file paths to be copied.
 /// - `mock_mode`: If true, no actual file operations will be performed; only logging will occur.
-pub fn paste_character_files(
-    dest_character: &CharacterWithInstall,
-    src_character: &CharacterWithInstall,
+#[must_use]
+pub fn paste_character_files_async(
+    dest_character: CharWithInstallLocal,
+    src_character: CharWithInstallLocal,
     selected_files: &[PathBuf],
     mock_mode: bool,
-) -> AnyResult<usize> {
-    if !mock_mode {
+) -> IOTask {
+    let first_task = if mock_mode {
+        None
+    } else {
         log::debug!("Backing up files before paste...");
-        backup_character_files(dest_character, selected_files, true, false)?;
-        log::debug!("Done.");
+        Some(backup_character_selected_async(
+            dest_character.clone(),
+            selected_files,
+            true,
+            false,
+            mock_mode,
+        ))
+    };
+
+    let paste_task = paste_character_files_async_internal(
+        dest_character,
+        src_character,
+        selected_files,
+        mock_mode,
+    );
+
+    if let Some(backup_task) = first_task {
+        backup_task.then(paste_task)
+    } else {
+        paste_task
     }
-
-    let dest_char_path = dest_character.get_character_path();
-    let src_char_path = src_character.get_character_path();
-
-    let mut files_copied = 0;
-
-    for relative_path in selected_files {
-        let src_file_path = src_char_path.join(relative_path);
-        let dest_file_path = dest_char_path.join(relative_path);
-
-        if !mock_mode {
-            filesystem::copy(&src_file_path, &dest_file_path)?;
-            files_copied += 1;
-        }
-
-        log::info!(
-            "{}Copied `{}` to `{}`",
-            mock_prefix(mock_mode),
-            relative_path.display(),
-            dest_file_path.display()
-        );
-    }
-
-    log::debug!("{}Pasted {files_copied} files.", mock_prefix(mock_mode));
-
-    Ok(files_copied)
 }
 
 /// Extract the character name and timestamp from a backup file path.
@@ -253,51 +353,70 @@ pub fn extract_backup_name(backup_filestem: &str) -> Option<(String, DateTime<Lo
 /// Restore a backup for the given `WoW` character from the specified backup file path.
 /// # Errors
 /// Returns an error if any file operations fail.
-pub fn restore_backup(
-    character: &CharacterWithInstall,
-    backup_path: &Path,
+#[must_use]
+pub fn restore_backup_async(
+    character: CharWithInstallLocal,
+    backup_path: PathBuf,
     mock_mode: bool,
-) -> AnyResult<usize> {
-    let file = filesystem::File::open(backup_path)?;
-    let mut archive = ZipArchive::new(file)?;
+) -> IOTask {
+    io_task_create(move |tx| {
+        let file = filesystem::File::open(backup_path)?;
+        let mut archive = ZipArchive::new(file)?;
 
-    let dest_root = character.get_character_path();
-    ensure_directory(&dest_root, mock_mode)?;
+        let backup_files_count = archive.file_names().count();
+        tx.send(IOProgress::Started {
+            total: backup_files_count,
+        })?;
 
-    let mut files_restored = 0;
+        let dest_root = character.get_character_path();
+        ensure_directory(&dest_root, mock_mode)?;
 
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
+        let mut files_restored = 0;
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i)?;
 
-        let Some(rel_path) = entry.enclosed_name() else {
-            continue;
-        };
+            let Some(rel_path) = entry.enclosed_name() else {
+                log::warn!(
+                    "{}Skipped extracting file with invalid path: `{}`",
+                    mock_prefix(mock_mode),
+                    entry.name()
+                );
+                continue;
+            };
 
-        let out_path = dest_root.join(&rel_path);
+            let out_path = dest_root.join(&rel_path);
+            if entry.name().ends_with('/') {
+                ensure_directory(&out_path, mock_mode)?;
+                continue;
+            }
 
-        if entry.name().ends_with('/') {
-            ensure_directory(&out_path, mock_mode)?;
-            continue;
+            if let Some(parent) = out_path.parent() {
+                ensure_directory(parent, mock_mode)?;
+            }
+
+            if !mock_mode {
+                let mut outfile = filesystem::File::create(&out_path)?;
+                std::io::copy(&mut entry, &mut outfile)?;
+                files_restored += 1;
+            }
+
+            tx.send(IOProgress::Advanced {
+                completed: files_restored,
+                total: backup_files_count,
+            })?;
+
+            log::info!(
+                "{}Restored file `{}`",
+                mock_prefix(mock_mode),
+                rel_path.display()
+            );
         }
 
-        if let Some(parent) = out_path.parent() {
-            ensure_directory(parent, mock_mode)?;
-        }
+        tx.send(IOProgress::Finished)?;
 
-        if !mock_mode {
-            let mut outfile = filesystem::File::create(&out_path)?;
-            std::io::copy(&mut entry, &mut outfile)?;
-            files_restored += 1;
-        }
-
-        log::info!(
-            "{}Restored file `{}`",
-            mock_prefix(mock_mode),
-            rel_path.display()
-        );
-    }
-
-    Ok(files_restored)
+        Ok(())
+    })
+    .name("Restoring backup")
 }
 
 /// Change the pinned status of a backup for the given `WoW` character at the specified index.
@@ -354,47 +473,64 @@ pub fn toggle_backup_pin(backup: &WoWCharacterBackup, mock_mode: bool) -> AnyRes
 /// if the maximum allowed number is exceeded.
 /// # Errors
 /// Returns an error if any file operations fail.
+#[must_use]
 pub fn manage_character_backups(
-    character: &CharacterWithInstall,
+    character: crate::ui::CharacterWithInstall<'_>,
     max_auto_backups: usize,
     mock_mode: bool,
-) -> AnyResult<usize> {
-    let mut auto_backups: Vec<WoWCharacterBackup> = character.character.unpinned_auto_backups();
+) -> Option<IOTask> {
+    let auto_backups: Vec<WoWCharacterBackup> = character.0.character.unpinned_auto_backups();
+    let auto_backups_count = auto_backups.len();
+    let backups_to_clean_count = auto_backups_count.saturating_sub(max_auto_backups);
 
     log::debug!(
         "Character `{}` has {} unpinned automatic backups, total backups: {}.",
-        character.character.name,
+        character.0.character.name,
         auto_backups.len(),
-        character.character.backups.len()
+        character.0.character.backups.len()
     );
 
-    if auto_backups.len() >= max_auto_backups {
+    if backups_to_clean_count > 0 {
         log::info!(
             "Character `{}` has {} unpinned automatic backups, exceeding the maximum of {}. Removing oldest backups...",
-            character.character.name,
-            character.character.unpinned_auto_backups_count(),
+            character.0.character.name,
+            character.0.character.unpinned_auto_backups_count(),
             max_auto_backups
         );
     } else {
-        return Ok(0);
+        return None;
     }
 
-    let mut removed_count = 0;
+    Some(
+        io_task_create(move |tx| {
+            let backups_to_clean = auto_backups
+                .iter()
+                .sorted_by(|a, b| a.timestamp.cmp(&b.timestamp))
+                .take(backups_to_clean_count)
+                .collect::<Vec<_>>();
 
-    while auto_backups.len() > max_auto_backups {
-        if let Some((oldest_index, oldest_backup)) = auto_backups
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, b)| b.timestamp)
-        {
-            if delete_backup_file(oldest_backup, true, mock_mode)? {
-                removed_count += 1;
+            tx.send(IOProgress::Started {
+                total: backups_to_clean_count,
+            })?;
+
+            let mut removed_count = 0;
+            for backup in &backups_to_clean {
+                if delete_backup_file(backup, true, mock_mode)? {
+                    removed_count += 1;
+                }
+
+                tx.send(IOProgress::Advanced {
+                    completed: removed_count,
+                    total: backups_to_clean_count,
+                })?;
             }
-            auto_backups.remove(oldest_index);
-        }
-    }
 
-    Ok(removed_count)
+            tx.send(IOProgress::Finished)?;
+
+            Ok(())
+        })
+        .name("Cleaning automatic backups"),
+    )
 }
 
 /// Manage automatic backups for the given `WoW` character, removing oldest unpinned backups

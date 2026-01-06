@@ -12,6 +12,7 @@ pub mod backup_popup;
 pub mod branch_popup;
 pub mod confirm_popup;
 pub mod options_popup;
+pub mod progress_popup;
 pub mod restore_popup;
 
 /// Create a dual highlighted symbol for hovered items, for lines with multiple spans.
