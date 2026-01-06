@@ -401,9 +401,6 @@ impl ChronoBindApp {
                 log::debug!("Quit requested");
                 self.should_exit = true;
             }
-            // KeyCode::Char('u') => {
-            //     self.open_popup(ProgressPopup::new());
-            // }
             _ => {}
         }
 
@@ -623,6 +620,10 @@ impl ChronoBindApp {
                     return;
                 };
                 let selected_files = character.0.get_all_selected_files();
+                if selected_files.is_empty() {
+                    log::warn!("No files selected for backup!");
+                    return;
+                }
                 let task = backend::backup_character_selected_async(
                     character.into(),
                     &selected_files,
