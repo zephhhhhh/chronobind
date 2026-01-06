@@ -1,7 +1,8 @@
 use std::fmt::Debug;
-use std::sync::mpsc::Receiver as MPSCReceiver;
+use std::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use std::sync::{Arc, Mutex};
 
+use crate::files::AnyResult;
 use crate::ui::messages::AppMessage;
 
 /// Shared thread-safe MPSC receiver.
@@ -52,6 +53,9 @@ pub trait BackendTask: Debug + Send + Sync {
         }
     }
 
+    /// Run the task.
+    fn run(&mut self) -> bool;
+
     /// Poll the task for updates.
     fn poll(&mut self);
 
@@ -98,8 +102,8 @@ pub trait BackendTask: Debug + Send + Sync {
 /// Represents progress updates for I/O operations.
 #[derive(Debug)]
 pub enum IOProgress {
-    /// IO operation has started with a total number of items to complete.
-    Started { total: usize },
+    /// IO operation has started.
+    Started,
     /// IO operation has advanced with the number of completed items and total items.
     Advanced { completed: usize, total: usize },
     /// IO operation has finished.
@@ -114,7 +118,7 @@ pub struct IOTaskState {
     /// Total number of items to be completed.
     pub total: usize,
     /// Number of items completed.
-    pub completed: usize,
+    pub completed_operations: usize,
     /// Whether the task has started.
     pub started: bool,
     /// Whether the task has finished.
@@ -123,9 +127,48 @@ pub struct IOTaskState {
     pub error: Option<String>,
 }
 
+/// Type alias for a task creation function.
+pub type TaskFn = dyn FnOnce(&MPSCSender<IOProgress>) -> AnyResult<()> + Send + Sync + 'static;
+
+/// A single-use task function wrapper.
+pub struct SingleUseTaskFn {
+    func: Option<Box<TaskFn>>,
+}
+
+unsafe impl Send for SingleUseTaskFn {}
+unsafe impl Sync for SingleUseTaskFn {}
+
+impl SingleUseTaskFn {
+    /// Creates a new `SingleUseTaskFn` with the provided function.
+    #[must_use]
+    pub fn new(func: Box<TaskFn>) -> Self {
+        Self { func: Some(func) }
+    }
+
+    /// Calls the wrapped function if it has not been called yet, returning the MPSC receiver for progress updates.
+    #[must_use]
+    pub fn create_task(&mut self) -> Option<MPSCReceiver<IOProgress>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.func.take().map_or_else(
+            || None,
+            |func| {
+                tx.send(IOProgress::Started).ok();
+                std::thread::spawn(move || {
+                    if let Err(e) = func(&tx) {
+                        tx.send(IOProgress::Error(e.to_string())).ok();
+                    }
+                });
+                Some(rx)
+            },
+        )
+    }
+}
+
 /// Backend IO task.
-#[derive(Debug)]
 pub struct IOTask {
+    /// Function to create the task thread.
+    task_function: SingleUseTaskFn,
+
     /// Name of the task.
     pub name: Option<String>,
     /// Label for the task.
@@ -140,17 +183,34 @@ pub struct IOTask {
     pub after_messages: Vec<AppMessage>,
 }
 
+#[allow(clippy::missing_fields_in_debug)]
+impl Debug for IOTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IOTask")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field("state", &self.state)
+            .field("next", &self.next)
+            .field("after_messages", &self.after_messages)
+            .finish()
+    }
+}
+
 impl IOTask {
     /// Default name for I/O tasks.
     pub const DEFAULT_NAME: &'static str = "I/O Task";
 
     /// Creates a new `IOTask` with the provided MPSC receiver.
     #[must_use]
-    pub fn new(rx: MPSCReceiver<IOProgress>) -> Self {
+    pub fn new<T>(task_fn: T) -> Self
+    where
+        T: FnOnce(&MPSCSender<IOProgress>) -> AnyResult<()> + Send + Sync + 'static,
+    {
         Self {
+            task_function: SingleUseTaskFn::new(Box::new(task_fn)),
             name: None,
             label: None,
-            rx: Some(wrap_rx(rx)),
+            rx: None,
             state: IOTaskState::default(),
             next: None,
             after_messages: Vec::new(),
@@ -203,18 +263,26 @@ impl BackendTask for IOTask {
         self.label.clone()
     }
 
+    fn run(&mut self) -> bool {
+        if let Some(rx) = self.task_function.create_task() {
+            self.rx = Some(wrap_rx(rx));
+            true
+        } else {
+            false
+        }
+    }
+
     fn poll(&mut self) {
         if let Some(rx) = &self.rx
             && let Ok(receiver) = rx.try_lock()
         {
             while let Ok(progress) = receiver.try_recv() {
                 match progress {
-                    IOProgress::Started { total } => {
+                    IOProgress::Started => {
                         self.state.started = true;
-                        self.state.total = total;
                     }
                     IOProgress::Advanced { completed, total } => {
-                        self.state.completed = completed;
+                        self.state.completed_operations = completed;
                         self.state.total = total;
                     }
                     IOProgress::Finished => {
@@ -240,7 +308,7 @@ impl BackendTask for IOTask {
     }
 
     fn completed_count(&self) -> Option<usize> {
-        Some(self.state.completed)
+        Some(self.state.completed_operations)
     }
     fn total_count(&self) -> Option<usize> {
         Some(self.state.total)
@@ -250,7 +318,7 @@ impl BackendTask for IOTask {
         if self.state.total == 0 {
             None
         } else {
-            Some(self.state.completed as f32 / self.state.total as f32)
+            Some(self.state.completed_operations as f32 / self.state.total as f32)
         }
     }
 

@@ -89,29 +89,43 @@ impl ProgressPopup {
     pub fn new(task: IOTask) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
-        Self {
+        let mut popup = Self {
             task: Box::new(task),
             close: false,
             commands: vec![],
+        };
+
+        popup.run_task();
+
+        popup
+    }
+
+    /// Start running the task.
+    /// If it fails to start, log an error and close the popup.
+    fn run_task(&mut self) {
+        if !self.task.run() {
+            log::error!("Failed to start task `{}`", self.task.task_name());
+            self.close();
         }
     }
 
     /// Check if the task has finalised and handle closure and errors.
     fn check_finalise(&mut self) {
-        if let Some(error) = self.task.error() {
-            // self.commands
-            //     .push(AppMessage::ShowError("Task Error".to_string(), error));
-            log::error!("Task error: `{error}`");
-            self.close();
-            return;
-        }
-
         if self.task.finished() {
+            if let Some(error) = self.task.error() {
+                // self.commands
+                //     .push(AppMessage::ShowError("Task Error".to_string(), error));
+                log::error!("Task error: `{error}`");
+                self.close();
+                return;
+            }
+
             if let Some(after_msg) = self.task.after_messages() {
                 self.commands.extend_from_slice(&after_msg);
             }
             if let Some(next) = self.task.next_task() {
                 self.task = next;
+                self.run_task();
             } else {
                 self.close();
             }

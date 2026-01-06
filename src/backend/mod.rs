@@ -128,7 +128,6 @@ fn backup_character_async_internal(
     }
 
     let total = dir_iter.len();
-    tx.send(IOProgress::Started { total })?;
 
     let backup_file_name = get_backup_name(&src_char.character, paste, pinned);
     let backup_file_path = backup_dir.join(backup_file_name);
@@ -161,25 +160,6 @@ fn backup_character_async_internal(
     Ok(())
 }
 
-/// Helper function to create a task thread for I/O operations.
-#[must_use]
-pub fn io_task_create<
-    F: FnOnce(&MPSCSender<IOProgress>) -> AnyResult<()> + Send + Sync + 'static,
->(
-    task_fn: F,
-) -> IOTask {
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    std::thread::spawn(move || match task_fn(&tx) {
-        Ok(()) => (),
-        Err(e) => {
-            tx.send(IOProgress::Error(e.to_string())).ok();
-        }
-    });
-
-    IOTask::new(rx)
-}
-
 /// Create a backup ZIP archive of the given `WoW` character's data.
 /// # Errors
 /// Returns an error if any file operations fail.
@@ -190,7 +170,7 @@ pub fn backup_character_all_async(
     pinned: bool,
     mock_mode: bool,
 ) -> IOTask {
-    io_task_create(move |tx| {
+    IOTask::new(move |tx| {
         backup_character_async_internal(tx, &src_char, None, paste, pinned, mock_mode)
     })
     .name("Backing up all files")
@@ -210,7 +190,7 @@ pub fn backup_character_selected_async(
 ) -> IOTask {
     let sel_files = selected_files.to_vec();
 
-    io_task_create(move |tx| {
+    IOTask::new(move |tx| {
         backup_character_async_internal(tx, &src_char, Some(&sel_files), paste, pinned, mock_mode)
     })
     .name("Backing up selected files")
@@ -243,12 +223,11 @@ fn paste_character_files_async_internal(
 ) -> IOTask {
     let sel_files = selected_files.to_vec();
 
-    io_task_create(move |tx| {
+    IOTask::new(move |tx| {
         let dest_char_path = dest_character.get_character_path();
         let src_char_path = src_character.get_character_path();
 
         let total = sel_files.len();
-        tx.send(IOProgress::Started { total })?;
 
         for (files_copied, relative_path) in sel_files.iter().enumerate() {
             let src_file_path = src_char_path.join(relative_path);
@@ -359,14 +338,11 @@ pub fn restore_backup_async(
     backup_path: PathBuf,
     mock_mode: bool,
 ) -> IOTask {
-    io_task_create(move |tx| {
+    IOTask::new(move |tx| {
         let file = filesystem::File::open(backup_path)?;
         let mut archive = ZipArchive::new(file)?;
 
         let backup_files_count = archive.file_names().count();
-        tx.send(IOProgress::Started {
-            total: backup_files_count,
-        })?;
 
         let dest_root = character.get_character_path();
         ensure_directory(&dest_root, mock_mode)?;
@@ -502,16 +478,12 @@ pub fn manage_character_backups(
     }
 
     Some(
-        io_task_create(move |tx| {
+        IOTask::new(move |tx| {
             let backups_to_clean = auto_backups
                 .iter()
                 .sorted_by(|a, b| a.timestamp.cmp(&b.timestamp))
                 .take(backups_to_clean_count)
                 .collect::<Vec<_>>();
-
-            tx.send(IOProgress::Started {
-                total: backups_to_clean_count,
-            })?;
 
             let mut removed_count = 0;
             for backup in &backups_to_clean {
