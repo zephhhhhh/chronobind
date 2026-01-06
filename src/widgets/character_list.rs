@@ -83,12 +83,14 @@ impl CharacterListWidget {
                 count,
             });
 
-            items.extend_from_slice(
-                &char_indices
-                    .iter()
-                    .map(|c| CharacterListItemKind::Character(*c))
-                    .collect::<Vec<_>>(),
-            );
+            if !collapsed {
+                items.extend_from_slice(
+                    &char_indices
+                        .iter()
+                        .map(|c| CharacterListItemKind::Character(*c))
+                        .collect::<Vec<_>>(),
+                );
+            }
         }
 
         items
@@ -183,54 +185,54 @@ impl CharacterListWidget {
             || " Characters ".to_string(),
             |branch| format!(" Characters - {branch} "),
         );
+        let block = Block::bordered()
+            .title(Line::from(title_content).bold())
+            .border_set(border::THICK);
 
-        let title = Line::from(title_content).bold();
-        let block = Block::bordered().title(title).border_set(border::THICK);
+        let char_list_items = self.get_character_list_items(characters);
 
-        let mut realms: BTreeMap<String, Vec<(usize, &Character)>> = BTreeMap::new();
-        for (i, character) in characters.iter().enumerate() {
-            realms
-                .entry(character.realm().to_string())
-                .or_default()
-                .push((i, character));
-        }
+        let selected_index = self.selected_index();
+        let items = char_list_items
+            .iter()
+            .enumerate()
+            .map(|(i, li)| {
+                let hovered = i == selected_index;
+                match li {
+                    CharacterListItemKind::RealmHeader {
+                        realm_ident,
+                        collapsed,
+                        ..
+                    } => {
+                        let content = format!(
+                            "{pad}{} {}[{realm_ident}]",
+                            expandable_icon(*collapsed),
+                            highlight_symbol(hovered),
+                            pad = indentation(PADDING)
+                        );
+                        ListItem::new(content).bold().fg(STD_FG).dim()
+                    }
+                    CharacterListItemKind::Character(char_idx) => {
+                        let character = &characters[*char_idx];
+                        let files_selected = character.any_file_selected();
 
-        let mut items = Vec::new();
+                        let ui_span_text = format!(
+                            "{pad}{}",
+                            highlight_symbol(hovered),
+                            pad = indentation(PADDING + INDENT)
+                        );
+                        let ui_span_source = if files_selected {
+                            Span::from(format!("{ui_span_text}• ")).fg(SELECTED_FG)
+                        } else {
+                            Span::from(ui_span_text)
+                        };
 
-        for (realm, chars) in &realms {
-            // Add realm header
-            let is_collapsed = self.collapsed_realms.contains(realm);
-            let hovered = self.state.selected().is_some_and(|sel| sel == items.len());
-            let content = format!(
-                "{pad}{} {}[{realm}]",
-                expandable_icon(is_collapsed),
-                highlight_symbol(hovered),
-                pad = indentation(PADDING)
-            );
-            items.push(ListItem::new(content).bold().fg(STD_FG).dim());
+                        let main_span = character.display_span(false);
 
-            // Add characters in this realm (only if not collapsed)
-            if !is_collapsed {
-                for (_, character) in chars {
-                    let hovered = self.state.selected().is_some_and(|sel| sel == items.len());
-                    let files_selected = character.any_file_selected();
-
-                    let ui_span_text = format!(
-                        "{pad}{}",
-                        highlight_symbol(hovered),
-                        pad = indentation(PADDING + INDENT)
-                    );
-                    let ui_span_source = if files_selected {
-                        Span::from(format!("{ui_span_text}• ")).fg(SELECTED_FG)
-                    } else {
-                        Span::from(ui_span_text)
-                    };
-
-                    let main_span = character.display_span(false);
-                    items.push(ListItem::new(Line::from(vec![ui_span_source, main_span])));
+                        ListItem::new(Line::from(vec![ui_span_source, main_span]))
+                    }
                 }
-            }
-        }
+            })
+            .collect::<Vec<_>>();
 
         let list_view = List::new(items)
             .block(block)

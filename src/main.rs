@@ -920,6 +920,10 @@ impl ChronoBindApp {
 
     /// Show the backup manager popup for the given character index, and selected backup index.
     pub fn show_manage_backups_popup(&mut self, char_idx: usize, selected_index: usize) {
+        if !self.refresh_character_backups(char_idx) {
+            log::warn!("Failed to refresh backups before opening backup manager!");
+        }
+
         let Some(character) = self.character_with_index(char_idx) else {
             log::error!("Invalid character index for backup manager popup: {char_idx}");
             return;

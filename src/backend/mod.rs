@@ -131,18 +131,27 @@ fn backup_character_async_internal(
 
     let backup_file_name = get_backup_name(&src_char.character, paste, pinned);
     let backup_file_path = backup_dir.join(backup_file_name);
-    let file = filesystem::File::create(&backup_file_path)?;
+
     let options: FullFileOptions =
         FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-    let mut zip = ZipWriter::new(file);
+    let mut zip = if mock_mode {
+        log::debug!(
+            "Mock mode enabled, skipping creation of backup file at `{}`",
+            backup_file_path.display()
+        );
+        None
+    } else {
+        let file = filesystem::File::create(&backup_file_path)?;
+        Some(ZipWriter::new(file))
+    };
 
     for (files_backed_up, file_path) in dir_iter.iter().enumerate() {
         let relative_path = file_path.strip_prefix(&char_path)?;
-        zip.start_file(relative_path.to_string_lossy(), options.clone())?;
+        if let Some(zip) = zip.as_mut() {
+            zip.start_file(relative_path.to_string_lossy(), options.clone())?;
 
-        if !mock_mode {
             let mut f = filesystem::File::open(file_path)?;
-            std::io::copy(&mut f, &mut zip)?;
+            std::io::copy(&mut f, zip)?;
         }
 
         log::info!("Backed up `{}`", relative_path.display());
@@ -152,7 +161,9 @@ fn backup_character_async_internal(
         })?;
     }
 
-    zip.finish()?;
+    if let Some(zip) = zip.take() {
+        zip.finish()?;
+    }
 
     log::debug!("Finished backup to `{}`", backup_file_path.display());
     tx.send(IOProgress::Finished)?;

@@ -155,7 +155,7 @@ impl SingleUseTaskFn {
                 tx.send(IOProgress::Started).ok();
                 std::thread::spawn(move || {
                     if let Err(e) = func(&tx) {
-                        tx.send(IOProgress::Error(e.to_string())).ok();
+                        tx.send(IOProgress::Error(format!("{e:?}"))).ok();
                     }
                 });
                 Some(rx)
