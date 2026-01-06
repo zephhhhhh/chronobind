@@ -209,7 +209,7 @@ impl CharacterListWidget {
                             highlight_symbol(hovered),
                             pad = indentation(PADDING)
                         );
-                        ListItem::new(content).bold().fg(STD_FG).dim()
+                        ListItem::new(content).bold().fg(PALETTE.std_fg).dim()
                     }
                     CharacterListItemKind::Character(char_idx) => {
                         let character = &characters[*char_idx];
@@ -221,7 +221,7 @@ impl CharacterListWidget {
                             pad = indentation(PADDING + INDENT)
                         );
                         let ui_span_source = if files_selected {
-                            Span::from(format!("{ui_span_text}• ")).fg(SELECTED_FG)
+                            Span::from(format!("{ui_span_text}• ")).fg(PALETTE.selected_fg)
                         } else {
                             Span::from(ui_span_text)
                         };
@@ -236,8 +236,8 @@ impl CharacterListWidget {
 
         let list_view = List::new(items)
             .block(block)
-            .fg(STD_FG)
-            .highlight_style(Style::new().bold().bg(HOVER_BG))
+            .fg(PALETTE.std_fg)
+            .highlight_style(Style::new().bold().bg(PALETTE.hover_bg))
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 

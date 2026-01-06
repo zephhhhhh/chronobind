@@ -31,7 +31,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use crate::backend::task::IOTask;
 use crate::config::ChronoBindAppConfig;
-use crate::palette::{ENTER_SYMBOL, STD_BG, STD_FG, STD_FG_INVERT};
+use crate::palette::{ENTER_SYMBOL, PALETTE};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
@@ -63,9 +63,8 @@ fn main() -> Result<()> {
         log::LevelFilter::Info
     });
 
-    let terminal_type = *terminal::TERMINAL_TYPE;
-    log::info!("Detected terminal type: {terminal_type}");
-    let better_symbols = terminal_type.supports_better_symbols();
+    terminal::log_terminal_info();
+    let better_symbols = terminal::TERMINAL_TYPE.supports_better_symbols();
 
     #[cfg(feature = "windows_terminal")]
     {
@@ -591,8 +590,9 @@ impl ChronoBindApp {
                 OptionsPopupCommand::ExportBackups => {
                     if let Some(selected_install) = self.get_selected_branch_install() {
                         let export_filename = format!(
-                            "{}_{}.{}",
+                            "{}-{}-{}.{}",
                             backend::DEFAULT_EXPORT_FILENAME,
+                            selected_install.branch_ident,
                             backend::date_now_as_filename_timestamp(),
                             backend::BACKUP_FILE_EXTENSION
                         );
@@ -770,7 +770,7 @@ impl ChronoBindApp {
         } else {
             Default::default()
         };
-        let title_span = Span::from(format!(" ChronoBind {mock}")).fg(STD_FG);
+        let title_span = Span::from(format!(" ChronoBind {mock}")).fg(PALETTE.std_fg);
 
         let copy_display = if let Some(char_idx) = &self.copied_char
             && let Some(copied_char) = self.characters.get(*char_idx)
@@ -780,8 +780,8 @@ impl ChronoBindApp {
                 copied_char.display_span(true),
                 Span::from(format!(" ({})", copied_char.total_selected_count())),
             ])
-            .bg(STD_BG)
-            .fg(STD_FG)
+            .bg(PALETTE.std_bg)
+            .fg(PALETTE.std_fg)
         } else {
             Line::from("")
         };
@@ -855,8 +855,8 @@ impl ChronoBindApp {
         };
 
         let status_line = Line::from(format!(" {final_text}"))
-            .fg(STD_FG_INVERT)
-            .bg(STD_FG);
+            .fg(PALETTE.std_fg_invert)
+            .bg(PALETTE.std_fg);
         status_line.render(area, buf);
     }
 }

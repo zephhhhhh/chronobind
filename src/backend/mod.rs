@@ -1,7 +1,7 @@
 pub mod task;
 pub mod zip_rw;
 
-use std::{path::Path, sync::mpsc::Sender as MPSCSender};
+use std::sync::mpsc::Sender as MPSCSender;
 
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use itertools::Itertools;
@@ -37,25 +37,6 @@ pub const DEFAULT_EXPORT_FILENAME: &str = "chronobind_export";
 
 /// File extension for backup files.
 pub const BACKUP_FILE_EXTENSION: &str = "zip";
-
-/// Convert an `OsStr` to a `String`, handling possible invalid UTF-8.
-#[inline]
-#[must_use]
-pub fn os_str_to_string(s: &std::ffi::OsStr) -> String {
-    s.to_string_lossy().into_owned()
-}
-
-/// Convert an `OsStr` to a `String`, handling possible invalid UTF-8.
-#[inline]
-#[must_use]
-pub fn cmp_extension<P: AsRef<Path>, S: AsRef<str>>(path: P, extension: S) -> bool {
-    path.as_ref()
-        .extension()
-        .map(os_str_to_string)
-        .unwrap_or_default()
-        .to_lowercase()
-        == extension.as_ref().to_lowercase()
-}
 
 /// Format a timestamp for use in a filename.
 #[inline]
@@ -171,6 +152,7 @@ fn backup_character_async_internal(
         tx.send(IOProgress::Advanced {
             completed: files_backed_up.saturating_add(1),
             total,
+            label: Some(relative_path.display().to_string()),
         })?;
     }
 
@@ -265,6 +247,7 @@ fn paste_character_files_async_internal(
             tx.send(IOProgress::Advanced {
                 completed: files_copied.saturating_add(1),
                 total,
+                label: Some(relative_path.display().to_string()),
             })?;
         }
 
@@ -367,7 +350,6 @@ pub fn restore_backup_async(
         let mut files_restored = 0;
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i)?;
-
             let Some(rel_path) = entry.enclosed_name() else {
                 log::warn!(
                     "{}Skipped extracting file with invalid path: `{}`",
@@ -396,6 +378,7 @@ pub fn restore_backup_async(
             tx.send(IOProgress::Advanced {
                 completed: files_restored,
                 total: backup_files_count,
+                label: Some(rel_path.display().to_string()),
             })?;
 
             log::info!(
@@ -428,11 +411,7 @@ pub fn change_backup_pin_state(
         return Ok(());
     }
 
-    let og_path = backup
-        .path
-        .file_name()
-        .map(os_str_to_string)
-        .unwrap_or_default();
+    let og_path = crate::files::file_name_str(&backup.path);
     let new_backup_name =
         get_backup_name_from(&backup.char_name, backup.timestamp, backup.is_paste, pinned);
 
@@ -511,6 +490,7 @@ pub fn manage_character_backups(
                 tx.send(IOProgress::Advanced {
                     completed: removed_count,
                     total: backups_to_clean_count,
+                    label: Some(backup.formatted_name()),
                 })?;
             }
 
@@ -571,7 +551,7 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
         final_zip_path.display()
     );
 
-    if !cmp_extension(&final_zip_path, BACKUP_FILE_EXTENSION) {
+    if !crate::files::cmp_extension(&final_zip_path, BACKUP_FILE_EXTENSION) {
         log::error!(
             "Export path `{}` is not a `.{BACKUP_FILE_EXTENSION}` file, expected a file to create the export.",
             final_zip_path.display()
@@ -583,7 +563,7 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
 
     let task = IOTask::new(move |tx| {
         let mut dir_iter = walk_dir_recursive::<&str>(&install_backup_path, &[])?;
-        dir_iter.retain(|p| cmp_extension(p, BACKUP_FILE_EXTENSION));
+        dir_iter.retain(|p| crate::files::cmp_extension(p, BACKUP_FILE_EXTENSION));
         let total = dir_iter.len();
 
         let mut zip = ChronoZipWriter::new(&final_zip_path, mock_mode)?;
@@ -596,6 +576,7 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
             tx.send(IOProgress::Advanced {
                 completed: backups_completed.saturating_add(1),
                 total,
+                label: Some(crate::files::file_stem_str(relative_path)),
             })?;
         }
 
@@ -612,7 +593,8 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
     .name(format!(
         "Exporting backups from {}",
         install.display_branch_name()
-    ));
+    ))
+    .show_task_label(true);
 
     Some(task)
 }

@@ -94,14 +94,15 @@ impl ConsoleWidget {
                 .skip(max_scroll.saturating_sub(self.scroll_offset))
                 .take(visible_lines)
                 .map(|log| {
-                    let color = log_level_colour(log.level());
+                    let color = PALETTE.log_level_colour(log.level());
                     Line::from(log.content().to_string()).fg(color)
                 })
                 .collect()
         });
 
-        let log_text = log_lines
-            .unwrap_or_else(|| vec![Line::from("Failed to retrieve logs").fg(LOG_ERROR_FG)]);
+        let log_text = log_lines.unwrap_or_else(|| {
+            vec![Line::from("Failed to retrieve logs").fg(PALETTE.log_error_fg)]
+        });
 
         Paragraph::new(log_text)
             .wrap(Wrap { trim: false })

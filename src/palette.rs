@@ -1,15 +1,99 @@
+use std::sync::LazyLock;
 use std::{fmt::Display, ops::Deref};
 
 use const_format::concatcp;
 use ratatui::style::Color;
 
-pub use colours::*;
+use crate::terminal::{BETTER_COLOURS, BETTER_SYMBOLS};
 
-use crate::terminal::BETTER_SYMBOLS;
+/// The currently selected palette.
+pub static PALETTE: LazyLock<&'static TUIPalette> = LazyLock::new(|| {
+    if *BETTER_COLOURS {
+        &better_colours::PALETTE
+    } else {
+        &standard_colours::PALETTE
+    }
+});
 
-// #[cfg(all(feature = "better-colours", target_os="windows"))]
-#[cfg(feature = "better-colours")]
-mod colours {
+/// Palette of colours used in the TUI.
+#[derive(Debug, Clone)]
+pub struct TUIPalette {
+    /// Background colour when hovering over an item.
+    pub hover_bg: Color,
+    /// Colour for selected text/items.
+    pub selected_fg: Color,
+    /// Colour for special text/items.
+    pub special_fg: Color,
+
+    /// Standard foreground colour.
+    pub std_fg: Color,
+    /// Standard inverted foreground colour.
+    pub std_fg_invert: Color,
+    /// Standard background colour.
+    pub std_bg: Color,
+
+    // Log level colours..
+    /// Colour for displaying an error message.
+    pub log_error_fg: Color,
+    /// Colour for displaying a warning message.
+    pub log_warn_fg: Color,
+    /// Colour for displaying an info message.
+    pub log_info_fg: Color,
+    /// Colour for displaying a debug message.
+    pub log_debug_fg: Color,
+    /// Colour for displaying a trace message.
+    pub log_trace_fg: Color,
+
+    // WoW class colours..
+    /// Colour for displaying an unknown class.
+    pub unknown_col: Color,
+    pub warrior_col: Color,
+    pub paladin_col: Color,
+    pub hunter_col: Color,
+    pub rogue_col: Color,
+    pub priest_col: Color,
+    pub deathknight_col: Color,
+    pub shaman_col: Color,
+    pub mage_col: Color,
+    pub warlock_col: Color,
+    pub monk_col: Color,
+    pub druid_col: Color,
+    pub demonhunter_col: Color,
+    pub evoker_col: Color,
+
+    // Dedication colours..
+    /// Colour for displaying dedication text.
+    pub heart_fg: Color,
+}
+
+impl TUIPalette {
+    /// Get the appropriate foreground colour based on selection state.
+    #[inline]
+    #[must_use]
+    pub const fn selection_fg(&self, selected: bool) -> Color {
+        if selected {
+            self.selected_fg
+        } else {
+            self.std_fg
+        }
+    }
+
+    /// Get the colour associated with a log level.
+    #[inline]
+    #[must_use]
+    pub const fn log_level_colour(&self, level: log::Level) -> Color {
+        match level {
+            log::Level::Error => self.log_error_fg,
+            log::Level::Warn => self.log_warn_fg,
+            log::Level::Info => self.log_info_fg,
+            log::Level::Debug => self.log_debug_fg,
+            log::Level::Trace => self.log_trace_fg,
+        }
+    }
+}
+
+pub mod better_colours {
+    use crate::palette::TUIPalette;
     use ratatui::style::Color;
 
     // Definitions..
@@ -17,81 +101,70 @@ mod colours {
     const SELECTED_GREEN: Color = Color::Rgb(37, 128, 48);
     const SPECIAL_WHITE: Color = Color::Rgb(205, 232, 250);
 
-    // UI colours..
-    pub const HOVER_BG: Color = DARK_SLATE;
-    pub const SELECTED_FG: Color = SELECTED_GREEN;
-    pub const SPECIAL_FG: Color = SPECIAL_WHITE;
+    pub const PALETTE: TUIPalette = TUIPalette {
+        hover_bg: DARK_SLATE,
+        selected_fg: SELECTED_GREEN,
+        special_fg: SPECIAL_WHITE,
 
-    pub const STD_FG: Color = Color::White;
-    pub const STD_FG_INVERT: Color = Color::Black;
-    pub const STD_BG: Color = Color::Reset;
+        std_fg: Color::White,
+        std_fg_invert: Color::Black,
+        std_bg: Color::Reset,
 
-    // Log level colours..
-    pub const LOG_ERROR_FG: Color = Color::Rgb(230, 0, 0);
-    pub const LOG_WARN_FG: Color = Color::Rgb(249, 241, 105);
-    pub const LOG_INFO_FG: Color = Color::Rgb(36, 114, 200);
-    pub const LOG_DEBUG_FG: Color = Color::Rgb(77, 166, 235);
-    pub const LOG_TRACE_FG: Color = Color::Rgb(204, 204, 204);
-
-    // WoW class colours..
-    pub const UNKNOWN_COL: Color = Color::Rgb(225, 225, 225);
-    pub const WARRIOR_COL: Color = Color::Rgb(198, 155, 109);
-    pub const PALADIN_COL: Color = Color::Rgb(244, 140, 186);
-    pub const HUNTER_COL: Color = Color::Rgb(170, 211, 144);
-    pub const ROGUE_COL: Color = Color::Rgb(255, 244, 104);
-    pub const PRIEST_COL: Color = Color::Rgb(255, 255, 255);
-    pub const DEATHKNIGHT_COL: Color = Color::Rgb(196, 30, 58);
-    pub const SHAMAN_COL: Color = Color::Rgb(0, 112, 221);
-    pub const MAGE_COL: Color = Color::Rgb(63, 199, 235);
-    pub const WARLOCK_COL: Color = Color::Rgb(135, 136, 238);
-    pub const MONK_COL: Color = Color::Rgb(0, 255, 152);
-    pub const DRUID_COL: Color = Color::Rgb(255, 124, 10);
-    pub const DEMONHUNTER_COL: Color = Color::Rgb(163, 48, 201);
-    pub const EVOKER_COL: Color = Color::Rgb(51, 147, 127);
-
-    // Dedication colours..
-    pub const HEART_FG: Color = Color::Rgb(186, 117, 170);
+        log_error_fg: Color::Rgb(230, 0, 0),
+        log_warn_fg: Color::Rgb(249, 241, 105),
+        log_info_fg: Color::Rgb(36, 114, 200),
+        log_debug_fg: Color::Rgb(77, 166, 235),
+        log_trace_fg: Color::Rgb(204, 204, 204),
+        unknown_col: Color::Rgb(225, 225, 225),
+        warrior_col: Color::Rgb(198, 155, 109),
+        paladin_col: Color::Rgb(244, 140, 186),
+        hunter_col: Color::Rgb(170, 211, 144),
+        rogue_col: Color::Rgb(255, 244, 104),
+        priest_col: Color::Rgb(255, 255, 255),
+        deathknight_col: Color::Rgb(196, 30, 58),
+        shaman_col: Color::Rgb(0, 112, 221),
+        mage_col: Color::Rgb(63, 199, 235),
+        warlock_col: Color::Rgb(135, 136, 238),
+        monk_col: Color::Rgb(0, 255, 152),
+        druid_col: Color::Rgb(255, 124, 10),
+        demonhunter_col: Color::Rgb(163, 48, 201),
+        evoker_col: Color::Rgb(51, 147, 127),
+        heart_fg: Color::Rgb(186, 117, 170),
+    };
 }
 
-// #[cfg(not(all(feature = "better-colours", target_os="windows")))]
-#[cfg(not(feature = "better-colours"))]
-mod colours {
+pub mod standard_colours {
+    use crate::palette::TUIPalette;
     use ratatui::style::Color;
 
-    // UI Colours..
-    pub const HOVER_BG: Color = Color::Indexed(235);
-    pub const SELECTED_FG: Color = Color::Indexed(29);
-    pub const SPECIAL_FG: Color = Color::Indexed(189);
-
-    pub const STD_FG: Color = Color::White;
-    pub const STD_FG_INVERT: Color = Color::Black;
-    pub const STD_BG: Color = Color::Reset;
-
-    // Log level colours..
-    pub const LOG_ERROR_FG: Color = Color::Red;
-    pub const LOG_WARN_FG: Color = Color::Yellow;
-    pub const LOG_INFO_FG: Color = Color::Blue;
-    pub const LOG_DEBUG_FG: Color = Color::Cyan;
-    pub const LOG_TRACE_FG: Color = Color::Gray;
-
-    // WoW Class Colours..
-    pub const UNKNOWN_COL: Color = Color::Indexed(255);
-    pub const WARRIOR_COL: Color = Color::Indexed(173);
-    pub const PALADIN_COL: Color = Color::Indexed(211);
-    pub const HUNTER_COL: Color = Color::Indexed(150);
-    pub const ROGUE_COL: Color = Color::Indexed(227);
-    pub const PRIEST_COL: Color = Color::White;
-    pub const DEATHKNIGHT_COL: Color = Color::Indexed(161);
-    pub const SHAMAN_COL: Color = Color::Indexed(26);
-    pub const MAGE_COL: Color = Color::Indexed(80);
-    pub const WARLOCK_COL: Color = Color::Indexed(105);
-    pub const MONK_COL: Color = Color::Indexed(48);
-    pub const DRUID_COL: Color = Color::Indexed(208);
-    pub const DEMONHUNTER_COL: Color = Color::Indexed(134);
-    pub const EVOKER_COL: Color = Color::Indexed(66);
-
-    // Dedication colours..
-    pub const HEART_FG: Color = Color::Indexed(139);
+    pub const PALETTE: TUIPalette = TUIPalette {
+        hover_bg: Color::Indexed(235),
+        selected_fg: Color::Indexed(29),
+        special_fg: Color::Indexed(189),
+        std_fg: Color::White,
+        std_fg_invert: Color::Black,
+        std_bg: Color::Reset,
+        log_error_fg: Color::Red,
+        log_warn_fg: Color::Yellow,
+        log_info_fg: Color::Blue,
+        log_debug_fg: Color::Cyan,
+        log_trace_fg: Color::Gray,
+        unknown_col: Color::Indexed(255),
+        warrior_col: Color::Indexed(173),
+        paladin_col: Color::Indexed(211),
+        hunter_col: Color::Indexed(150),
+        rogue_col: Color::Indexed(227),
+        priest_col: Color::White,
+        deathknight_col: Color::Indexed(161),
+        shaman_col: Color::Indexed(26),
+        mage_col: Color::Indexed(80),
+        warlock_col: Color::Indexed(105),
+        monk_col: Color::Indexed(48),
+        druid_col: Color::Indexed(208),
+        demonhunter_col: Color::Indexed(134),
+        evoker_col: Color::Indexed(66),
+        heart_fg: Color::Indexed(139),
+    };
 }
 
 // Icons, formatting, etc..
@@ -262,17 +335,4 @@ pub fn display_backup_time(dt: &chrono::DateTime<chrono::Local>) -> String {
 #[must_use]
 pub const fn into_colour((r, g, b): (u8, u8, u8)) -> Color {
     Color::Rgb(r, g, b)
-}
-
-/// Get the colour associated with a log level.
-#[inline]
-#[must_use]
-pub const fn log_level_colour(level: log::Level) -> Color {
-    match level {
-        log::Level::Error => LOG_ERROR_FG,
-        log::Level::Warn => LOG_WARN_FG,
-        log::Level::Info => LOG_INFO_FG,
-        log::Level::Debug => LOG_DEBUG_FG,
-        log::Level::Trace => LOG_TRACE_FG,
-    }
 }

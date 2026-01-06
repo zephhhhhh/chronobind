@@ -5,9 +5,15 @@ pub static TERMINAL_TYPE: LazyLock<TerminalType> = LazyLock::new(|| {
     if running_in_windows_terminal() {
         TerminalType::WindowsTerminal
     } else if running_in_vscode_terminal() {
-        TerminalType::VSCodeTerminal
+        TerminalType::VSCode
+    } else if cfg!(target_os = "macos") {
+        if running_in_macos_terminal() {
+            TerminalType::MacOS
+        } else {
+            TerminalType::ThirdPartyMacOSTerminal
+        }
     } else {
-        TerminalType::Standard
+        TerminalType::WindowsCMD
     }
 });
 
@@ -15,15 +21,45 @@ pub static TERMINAL_TYPE: LazyLock<TerminalType> = LazyLock::new(|| {
 pub static BETTER_SYMBOLS: LazyLock<bool> =
     LazyLock::new(|| TERMINAL_TYPE.supports_better_symbols());
 
+/// If better colours are supported.
+pub static BETTER_COLOURS: LazyLock<bool> =
+    LazyLock::new(|| TERMINAL_TYPE.supports_better_colours());
+
+/// Log information about the detected terminal.
+pub fn log_terminal_info() {
+    let better_sym = if *BETTER_SYMBOLS {
+        " (Better Symbols)"
+    } else {
+        ""
+    };
+    let better_colours = if *BETTER_COLOURS {
+        " (Better Colours)"
+    } else {
+        ""
+    };
+    log::info!(
+        "Detected terminal type: {}{}{}",
+        *TERMINAL_TYPE,
+        better_sym,
+        better_colours
+    );
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TerminalType {
     #[default]
-    /// Standard terminal.
-    Standard,
+    /// Standard `cmd` terminal.
+    WindowsCMD,
+    /// Default `MacOS` terminal (Terminal.app).
+    MacOS,
     /// Windows Terminal.
     WindowsTerminal,
     /// VS Code Terminal.
-    VSCodeTerminal,
+    VSCode,
+    /// Third party `MacOS` terminal (iTerm2, Alacritty, etc).
+    /// We just assume that if we are on `MacOS` and not in the default terminal,
+    /// then we are in a third party terminal.
+    ThirdPartyMacOSTerminal,
 }
 
 impl Display for TerminalType {
@@ -38,9 +74,11 @@ impl TerminalType {
     #[must_use]
     pub const fn name(&self) -> &'static str {
         match self {
-            Self::Standard => "Standard Terminal",
+            Self::WindowsCMD => "CMD",
             Self::WindowsTerminal => "Windows Terminal",
-            Self::VSCodeTerminal => "VS Code Terminal",
+            Self::VSCode => "VS Code Terminal",
+            Self::MacOS => "MacOS Terminal",
+            Self::ThirdPartyMacOSTerminal => "Third Party MacOS Terminal",
         }
     }
 
@@ -48,7 +86,20 @@ impl TerminalType {
     #[inline]
     #[must_use]
     pub const fn supports_better_symbols(&self) -> bool {
-        matches!(self, Self::WindowsTerminal | Self::VSCodeTerminal)
+        matches!(
+            self,
+            Self::WindowsTerminal | Self::VSCode | Self::ThirdPartyMacOSTerminal
+        )
+    }
+
+    /// Returns `true` if the terminal supports better colours.
+    #[inline]
+    #[must_use]
+    pub const fn supports_better_colours(&self) -> bool {
+        matches!(
+            self,
+            Self::WindowsTerminal | Self::VSCode | Self::ThirdPartyMacOSTerminal | Self::WindowsCMD
+        )
     }
 }
 
@@ -64,6 +115,13 @@ pub fn running_in_windows_terminal() -> bool {
 #[must_use]
 pub fn running_in_vscode_terminal() -> bool {
     matches!(std::env::var("TERM_PROGRAM"), Ok(val) if val.to_lowercase().contains("vscode"))
+}
+
+/// Check if running in the default `MacOS` terminal.
+#[inline]
+#[must_use]
+pub fn running_in_macos_terminal() -> bool {
+    matches!(std::env::var("TERM_PROGRAM"), Ok(val) if val.to_lowercase().contains("Apple_Terminal"))
 }
 
 /// Check if Windows Terminal is installed on this system.

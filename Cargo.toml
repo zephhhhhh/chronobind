@@ -4,9 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["better-colours", "windows_terminal"]
+default = ["windows_terminal"]
 windows_terminal = []
-better-colours = []
 
 [dependencies]
 itertools = "0.14.0"

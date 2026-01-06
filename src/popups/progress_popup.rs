@@ -89,14 +89,14 @@ impl Popup for ProgressPopup {
 
         let render_area = area.inner(Margin::new(1, 1));
         let block = popup_block(format!(" {} ", self.task.task_name()))
-            .border_style(Style::default().fg(LOG_INFO_FG));
+            .border_style(Style::default().fg(PALETTE.log_info_fg));
 
         let progress_label = self.task.progress_formatted(true);
         let percentage = self.task.progress_ui();
 
         let progress_bar = Gauge::default()
             .block(block)
-            .gauge_style(Style::new().fg(STD_FG).bg(HOVER_BG))
+            .gauge_style(Style::new().fg(PALETTE.std_fg).bg(PALETTE.hover_bg))
             .label(progress_label)
             .percent(percentage.clamp(0, 100));
 

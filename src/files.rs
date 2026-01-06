@@ -1,5 +1,6 @@
 use filesystem::DirEntry;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fs as filesystem;
 use std::path::{Path, PathBuf};
 
@@ -93,4 +94,82 @@ pub fn walk_dir_recursive<T: AsRef<Path>>(
     let mut entries = Vec::new();
     walk_dir_impl(base_path, &excluded_paths, &mut entries)?;
     Ok(entries)
+}
+
+/// Utility trait for converting `OsStr` and related types to `String`.
+pub trait OsStrUtils {
+    /// Convert an `OsStr` to a `String`, handling possible invalid UTF-8.
+    #[must_use]
+    fn to_rust_string(&self) -> String;
+}
+impl OsStrUtils for std::ffi::OsStr {
+    #[inline]
+    fn to_rust_string(&self) -> String {
+        self.to_string_lossy().into_owned()
+    }
+}
+impl OsStrUtils for Option<&std::ffi::OsStr> {
+    #[inline]
+    fn to_rust_string(&self) -> String {
+        self.map(OsStrUtils::to_rust_string).unwrap_or_default()
+    }
+}
+impl OsStrUtils for OsString {
+    #[inline]
+    fn to_rust_string(&self) -> String {
+        (self.as_ref() as &std::ffi::OsStr)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+impl OsStrUtils for Option<OsString> {
+    #[inline]
+    fn to_rust_string(&self) -> String {
+        self.as_ref()
+            .map(OsStrUtils::to_rust_string)
+            .unwrap_or_default()
+    }
+}
+impl OsStrUtils for Option<&OsString> {
+    #[inline]
+    fn to_rust_string(&self) -> String {
+        self.map(OsStrUtils::to_rust_string).unwrap_or_default()
+    }
+}
+
+/// Get the file name as a `String` from a given path.
+#[inline]
+#[must_use]
+pub fn file_name_str<P: AsRef<Path>>(path: P) -> String {
+    path.as_ref()
+        .file_name()
+        .map(OsStrUtils::to_rust_string)
+        .unwrap_or_default()
+}
+
+/// Get the file stem as a `String` from a given path.
+#[inline]
+#[must_use]
+pub fn file_stem_str<P: AsRef<Path>>(path: P) -> String {
+    path.as_ref()
+        .file_name()
+        .map(OsStrUtils::to_rust_string)
+        .unwrap_or_default()
+}
+
+/// Get the file extension as a `String` from a given path.
+#[inline]
+#[must_use]
+pub fn file_extension<P: AsRef<Path>>(path: P) -> String {
+    path.as_ref()
+        .extension()
+        .map(OsStrUtils::to_rust_string)
+        .unwrap_or_default()
+}
+
+/// Convert an `OsStr` to a `String`, handling possible invalid UTF-8.
+#[inline]
+#[must_use]
+pub fn cmp_extension<P: AsRef<Path>, S: AsRef<str>>(path: P, extension: S) -> bool {
+    file_extension(path.as_ref()) == extension.as_ref().to_lowercase()
 }

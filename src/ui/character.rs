@@ -85,7 +85,7 @@ impl Character {
     /// Get the class colour of the character.
     #[inline]
     #[must_use]
-    pub const fn class_colour(&self) -> Color {
+    pub fn class_colour(&self) -> Color {
         self.character.class.class_colour()
     }
 

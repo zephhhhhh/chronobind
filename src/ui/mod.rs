@@ -27,3 +27,27 @@ impl KeyCodeExt for KeyEvent {
         lower_keycode(self.code)
     }
 }
+
+/// Truncate a string to a maximum length, appending an ellipsis string if truncated.
+#[inline]
+#[must_use]
+pub fn truncate_with_ellipsis<S: AsRef<str>>(s: S, max_len: usize) -> String {
+    const ELLIPSIS: &str = "...";
+
+    let string_ref = s.as_ref();
+
+    // If max_len is too small to even fit `ELLIPSIS`, return a shortened ellipsis
+    if max_len <= ELLIPSIS.len() {
+        return ".".repeat(max_len);
+    }
+
+    // Count characters without allocating
+    if string_ref.chars().count() <= max_len {
+        return string_ref.to_string();
+    }
+
+    // Take (max_len - 3) characters and append `ELLIPSIS`
+    let mut truncated = String::with_capacity(max_len);
+    truncated.extend(string_ref.chars().take(max_len - ELLIPSIS.len()));
+    truncated + ELLIPSIS
+}

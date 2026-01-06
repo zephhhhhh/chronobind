@@ -182,11 +182,11 @@ impl FileListWidget {
         let has_friendly = file.has_friendly_name();
 
         let fg_colour = if selected {
-            SELECTED_FG
+            PALETTE.selected_fg
         } else if has_friendly && config.show_friendly_names {
-            SPECIAL_FG
+            PALETTE.special_fg
         } else {
-            STD_FG
+            PALETTE.std_fg
         };
         let mut style = Style::default().fg(fg_colour);
 
@@ -223,11 +223,11 @@ impl FileListWidget {
         let all_addon_file_selected = character.all_addon_files_selected();
 
         let colour = if all_addon_file_selected && !no_addon_files {
-            SELECTED_FG
+            PALETTE.selected_fg
         } else if any_addon_file_selected && !no_addon_files {
-            LOG_WARN_FG
+            PALETTE.log_warn_fg
         } else {
-            STD_FG
+            PALETTE.std_fg
         };
 
         let label = format!("Addon Options ({count})");
@@ -255,11 +255,11 @@ impl FileListWidget {
         let has_friendly = file.has_friendly_name();
 
         let fg_colour = if selected {
-            SELECTED_FG
+            PALETTE.selected_fg
         } else if has_friendly && config.show_friendly_names {
-            SPECIAL_FG
+            PALETTE.special_fg
         } else {
-            STD_FG
+            PALETTE.std_fg
         };
         let mut style = Style::default().fg(fg_colour);
 
@@ -338,12 +338,12 @@ impl FileListWidget {
 
         let mut list_view = List::new(items)
             .block(block)
-            .fg(STD_FG)
+            .fg(PALETTE.std_fg)
             .highlight_spacing(ratatui::widgets::HighlightSpacing::WhenSelected)
             .direction(ListDirection::TopToBottom);
 
         if show_highlight {
-            list_view = list_view.highlight_style(Style::new().bold().bg(HOVER_BG));
+            list_view = list_view.highlight_style(Style::new().bold().bg(PALETTE.hover_bg));
         }
 
         list_with_scrollbar(list_view, area, buf, &mut self.state);

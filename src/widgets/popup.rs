@@ -10,7 +10,7 @@ use ratatui::symbols::border;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Clear, List, ListDirection, ListItem, Padding, Widget};
 
-use crate::palette::{HOVER_BG, STD_BG, STD_FG};
+use crate::palette::PALETTE;
 pub use crate::ui::messages::{AppMessage, PopupMessage};
 
 /// Type alias for a boxed `Popup` trait object.
@@ -147,7 +147,7 @@ pub fn popup_block_raw<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
         .title(title.into().bold())
         .title_alignment(POPUP_TITLE_ALIGNMENT)
         .border_set(POPUP_BORDER_STYLE)
-        .bg(STD_BG)
+        .bg(PALETTE.std_bg)
 }
 
 /// Create a consistently styled popup block with a title for use in popups, does style and center the inner content,
@@ -159,8 +159,6 @@ pub fn popup_block<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
 
 // List styling functions..
 
-/// Standard highlight style for popup lists.
-pub const POPUP_LIST_HIGHLIGHT_STYLE: Style = Style::new().bold().bg(HOVER_BG);
 /// Standard list direction for popup lists.
 pub const POPUP_LIST_DIRECTION: ListDirection = ListDirection::TopToBottom;
 
@@ -172,8 +170,8 @@ where
     T::Item: Into<ListItem<'a>>,
 {
     List::new(items)
-        .fg(STD_FG)
-        .highlight_style(POPUP_LIST_HIGHLIGHT_STYLE)
+        .fg(PALETTE.std_bg)
+        .highlight_style(Style::new().bold().bg(PALETTE.hover_bg))
         .direction(POPUP_LIST_DIRECTION)
 }
 

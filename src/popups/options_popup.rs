@@ -228,7 +228,12 @@ impl OptionsPopup {
             .iter()
             .enumerate()
             .map(|(i, option)| {
-                option.get_line(&self.configuration, &self.branches, self.selected_branch.as_ref(), i == selected_idx)
+                option.get_line(
+                    &self.configuration,
+                    &self.branches,
+                    self.selected_branch.as_ref(),
+                    i == selected_idx,
+                )
             })
             .collect::<Vec<Line>>();
 
@@ -242,8 +247,8 @@ impl OptionsPopup {
 
         let line = Line::from(vec![
             Span::from("Dedicated to "),
-            Span::from(MY_LOVE).bold().italic().fg(HEART_FG),
-            Span::from(" <3").fg(HEART_FG),
+            Span::from(MY_LOVE).bold().italic().fg(PALETTE.heart_fg),
+            Span::from(" <3").fg(PALETTE.heart_fg),
         ])
         .right_aligned();
 
@@ -421,7 +426,7 @@ impl Popup for OptionsPopup {
 
 /// Create a line representing a toggle option.
 fn toggle_option(title: &str, selected: bool, hovered: bool) -> Line<'_> {
-    let colour = if selected { SELECTED_FG } else { STD_FG };
+    let colour = PALETTE.selection_fg(selected);
     let content = format!("{} {}", checkbox(selected), highlight_str(title, hovered));
     Line::from(content).fg(colour)
 }

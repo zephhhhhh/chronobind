@@ -106,8 +106,13 @@ pub trait BackendTask: Debug + Send + Sync {
 pub enum IOProgress {
     /// IO operation has started.
     Started,
-    /// IO operation has advanced with the number of completed items and total items.
-    Advanced { completed: usize, total: usize },
+    /// IO operation has advanced with the number of completed items and total items,
+    /// and an optional string, representing a context label message for the work just completed.
+    Advanced {
+        completed: usize,
+        total: usize,
+        label: Option<String>,
+    },
     /// IO operation has finished.
     Finished,
     /// IO operation encountered an error with an attached message.
@@ -125,6 +130,8 @@ pub struct IOTaskState {
     pub started: bool,
     /// Whether the task has finished.
     pub finished: bool,
+    /// Label from the task progress.
+    pub label: Option<String>,
     /// Any error message from the task.
     pub error: Option<String>,
 }
@@ -184,6 +191,8 @@ pub struct IOTask {
     pub next: Option<BackendTaskPtr>,
     /// Optional messages to be sent after task completion.
     pub after_messages: Vec<AppMessage>,
+    /// Whether to show the labels provided from the `IOTask` in the progress display.
+    pub show_task_label: bool,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -216,6 +225,7 @@ impl IOTask {
             state: IOTaskState::default(),
             next: None,
             after_messages: Vec::new(),
+            show_task_label: false,
         }
     }
 
@@ -249,10 +259,28 @@ impl IOTask {
         self
     }
 
+    /// Sets whether to show `IOTask` update labels in the progress display.
+    pub const fn show_task_label(mut self, show: bool) -> Self {
+        self.show_task_label = show;
+        self
+    }
+
     /// Adds a task to be executed after all tasks in this chain have been completed.
     pub fn with_back<T: BackendTask + 'static>(mut self, next: T) -> Self {
         self.add_next(Box::new(next));
         self
+    }
+}
+
+impl IOTask {
+    /// Get a truncated version of the `IOTask` updated label for display in the UI.
+    #[inline]
+    #[must_use]
+    pub fn iotask_update_label_display(&self) -> Option<String> {
+        const MAX_LABEL_LEN: usize = 24;
+
+        let label = self.state.label.clone()?;
+        Some(crate::ui::truncate_with_ellipsis(label, MAX_LABEL_LEN))
     }
 }
 
@@ -263,7 +291,24 @@ impl BackendTask for IOTask {
             .unwrap_or_else(|| Self::DEFAULT_NAME.to_string())
     }
     fn task_label(&self) -> Option<String> {
-        self.label.clone()
+        self.label.as_ref().map_or_else(
+            || {
+                if self.show_task_label {
+                    self.iotask_update_label_display()
+                } else {
+                    None
+                }
+            },
+            |label| {
+                if self.show_task_label
+                    && let Some(task_label) = self.iotask_update_label_display()
+                {
+                    Some(format!("{label} - {task_label}"))
+                } else {
+                    Some(label.clone())
+                }
+            },
+        )
     }
 
     fn run(&mut self) -> bool {
@@ -284,9 +329,14 @@ impl BackendTask for IOTask {
                     IOProgress::Started => {
                         self.state.started = true;
                     }
-                    IOProgress::Advanced { completed, total } => {
+                    IOProgress::Advanced {
+                        completed,
+                        total,
+                        label,
+                    } => {
                         self.state.completed_operations = completed;
                         self.state.total = total;
+                        self.state.label = label;
                     }
                     IOProgress::Finished => {
                         self.state.finished = true;

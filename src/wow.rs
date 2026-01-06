@@ -6,7 +6,7 @@ use itertools::Itertools;
 use prost::Message;
 use ratatui::style::Color;
 
-use crate::{backend::BACKUP_FILE_EXTENSION, files::read_folders_to_string};
+use crate::{backend::BACKUP_FILE_EXTENSION, files::read_folders_to_string, palette::PALETTE};
 
 mod productdb {
     include!(concat!(env!("OUT_DIR"), "/productdb.rs"));
@@ -839,22 +839,22 @@ impl WoWClass {
     /// Returns the RGB colour associated with the class.
     #[inline]
     #[must_use]
-    pub const fn class_colour(&self) -> Color {
+    pub fn class_colour(&self) -> Color {
         match self {
-            Self::Unknown => crate::palette::UNKNOWN_COL,
-            Self::Warrior => crate::palette::WARRIOR_COL,
-            Self::Paladin => crate::palette::PALADIN_COL,
-            Self::Hunter => crate::palette::HUNTER_COL,
-            Self::Rogue => crate::palette::ROGUE_COL,
-            Self::Priest => crate::palette::PRIEST_COL,
-            Self::DeathKnight => crate::palette::DEATHKNIGHT_COL,
-            Self::Shaman => crate::palette::SHAMAN_COL,
-            Self::Mage => crate::palette::MAGE_COL,
-            Self::Warlock => crate::palette::WARLOCK_COL,
-            Self::Monk => crate::palette::MONK_COL,
-            Self::Druid => crate::palette::DRUID_COL,
-            Self::DemonHunter => crate::palette::DEMONHUNTER_COL,
-            Self::Evoker => crate::palette::EVOKER_COL,
+            Self::Unknown => PALETTE.unknown_col,
+            Self::Warrior => PALETTE.warrior_col,
+            Self::Paladin => PALETTE.paladin_col,
+            Self::Hunter => PALETTE.hunter_col,
+            Self::Rogue => PALETTE.rogue_col,
+            Self::Priest => PALETTE.priest_col,
+            Self::DeathKnight => PALETTE.deathknight_col,
+            Self::Shaman => PALETTE.shaman_col,
+            Self::Mage => PALETTE.mage_col,
+            Self::Warlock => PALETTE.warlock_col,
+            Self::Monk => PALETTE.monk_col,
+            Self::Druid => PALETTE.druid_col,
+            Self::DemonHunter => PALETTE.demonhunter_col,
+            Self::Evoker => PALETTE.evoker_col,
         }
     }
 }

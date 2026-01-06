@@ -96,7 +96,8 @@ impl Popup for ConfirmationPopup {
     fn draw(&mut self, area: Rect, buf: &mut Buffer) {
         let render_area = area.inner(Margin::new(1, 1));
 
-        let block = popup_block(" Are you sure? ").border_style(Style::default().fg(LOG_WARN_FG));
+        let block =
+            popup_block(" Are you sure? ").border_style(Style::default().fg(PALETTE.log_warn_fg));
 
         let selected_idx = self.state.selected().unwrap_or(0);
         let items = [
