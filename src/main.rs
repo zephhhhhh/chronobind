@@ -6,7 +6,6 @@ pub mod config;
 pub mod files;
 pub mod palette;
 pub mod popups;
-pub mod terminal;
 pub mod tui_log;
 pub mod ui;
 pub mod widgets;
@@ -48,9 +47,8 @@ use crate::ui::{
 use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::{WoWCharacterBackup, WoWInstall, WoWInstalls};
 
-#[cfg(feature = "windows_terminal")]
-/// Whether to relaunch in debug mode on Windows Terminal if better symbols are not supported.
-const RELAUNCH_IN_DEBUG: bool = false;
+/// Whether to relaunch the terminal in debug mode on Windows Terminal if better symbols are not supported.
+const RELAUNCH_IN_DEBUG: bool = true;
 
 /// Entry point..
 fn main() -> Result<()> {
@@ -64,17 +62,15 @@ fn main() -> Result<()> {
         log::LevelFilter::Info
     });
 
-    terminal::log_terminal_info();
+    log::info!(
+        "Terminal info: {}",
+        terminal_relaunch::CURRENT_TERMINAL.verbose_format()
+    );
 
-    #[cfg(feature = "windows_terminal")]
-    {
-        if terminal::has_been_relaunched() {
-            log::info!("Relaunch already attempted, not retrying...");
-        } else if !terminal::TERMINAL_TYPE.supports_better_symbols()
-            && (!cfg!(debug_assertions) || RELAUNCH_IN_DEBUG)
-            && try_relaunch_in_windows_terminal()
-        {
-            return Ok(());
+    if !cfg!(debug_assertions) || RELAUNCH_IN_DEBUG {
+        match terminal_relaunch::relaunch_if_available_and_exit() {
+            Ok(()) => println!("Terminal features met!"),
+            Err(e) => eprintln!("Terminal could not relaunch: {e:?}"),
         }
     }
 
@@ -90,27 +86,6 @@ fn main() -> Result<()> {
     ratatui::restore();
 
     result
-}
-
-/// Attempt to relaunch the application in Windows Terminal.
-#[cfg(feature = "windows_terminal")]
-fn try_relaunch_in_windows_terminal() -> bool {
-    if terminal::windows_terminal_installed() {
-        log::info!("Windows terminal installed, attempting to relaunch..");
-        match terminal::relaunch_in_windows_terminal() {
-            Ok(()) => {
-                log::info!("Relaunch successful, exiting current instance.");
-                true
-            }
-            Err(e) => {
-                log::error!("Failed to relaunch in Windows Terminal: {e}");
-                false
-            }
-        }
-    } else {
-        log::warn!("Windows terminal not installed, cannot relaunch with better symbols support.");
-        false
-    }
 }
 
 /// Set the console window title.

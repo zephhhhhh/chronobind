@@ -4,7 +4,9 @@ use std::{fmt::Display, ops::Deref};
 use const_format::concatcp;
 use ratatui::style::Color;
 
-use crate::terminal::{BETTER_COLOURS, BETTER_SYMBOLS};
+use terminal_relaunch::{
+    SUPPORTS_FULL_UNICODE as BETTER_SYMBOLS, SUPPORTS_RGB_ANSI_COLOURS as BETTER_COLOURS,
+};
 
 /// The currently selected palette.
 pub static PALETTE: LazyLock<&'static TUIPalette> = LazyLock::new(|| {

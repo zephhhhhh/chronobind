@@ -232,6 +232,7 @@ dependencies = [
  "ron",
  "serde",
  "strum",
+ "terminal_relaunch",
  "winreg",
  "zip",
 ]
@@ -1763,6 +1764,17 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "terminal_relaunch"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e7e85fe06f75b4f73b551be7f730f6089b0394489953c334e1156ac97497f57"
+dependencies = [
+ "strum",
+ "thiserror 2.0.17",
+ "winreg",
 ]
 
 [[package]]

@@ -3,10 +3,6 @@ name = "chronobind"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = ["windows_terminal"]
-windows_terminal = []
-
 [dependencies]
 itertools = "0.14.0"
 
@@ -17,8 +13,12 @@ ratatui = { version = "0.30.0", features = [
 color-eyre = "0.6.5"
 strum = { version = "0.27.2", features = ["derive"] }
 
+# Relaunching terminal with better support for colours and symbols.
+# (Written by me)
+terminal_relaunch = "0.1.0"
+
 # Logging..
-log = "0.4.20"
+log = "0.4.29"
 
 # Protobuf.. 
 prost = "0.14"
