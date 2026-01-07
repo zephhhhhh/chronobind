@@ -1,6 +1,7 @@
 use filesystem::File;
-use std::fs as filesystem;
 use std::path::Path;
+use std::sync::Mutex;
+use std::{fs as filesystem, sync::Arc};
 
 use zip::{ZipWriter, write::FileOptions};
 
@@ -38,6 +39,24 @@ impl<'a> ChronoZipWriter<'a> {
             zip,
             options: Self::DEFAULT_ZIP_OPTIONS,
         })
+    }
+
+    /// Create a new `ChronoZipWriter` wrapped in an `Arc<Mutex<>>` with the specified file and options.
+    /// # Errors
+    /// Returns an error if the file cannot be created.
+    #[must_use]
+    pub fn new_arc(path: &Path, mock_mode: bool) -> Option<Arc<Mutex<Self>>> {
+        match Self::new(path, mock_mode) {
+            Ok(writer) => Some(Arc::new(Mutex::new(writer))),
+            Err(e) => {
+                log::error!(
+                    "Failed to create ChronoZipWriter for path `{}`: {}",
+                    path.display(),
+                    e
+                );
+                None
+            }
+        }
     }
 
     /// Set the file options for the ZIP writer.
@@ -105,10 +124,25 @@ impl ChronoZipWriter<'_> {
     /// Finish writing the ZIP archive, does nothing if in mock mode.
     /// # Errors
     /// Returns an error if the operation fails.
-    pub fn finish(mut self) -> AnyResult<()> {
+    pub fn finish(&mut self) -> AnyResult<()> {
         if let Some(zip) = self.zip.take() {
             zip.finish()?;
         }
         Ok(())
+    }
+}
+
+impl Drop for ChronoZipWriter<'_> {
+    fn drop(&mut self) {
+        if let Some(zip) = self.zip.take() {
+            match zip.finish() {
+                Ok(_) => {
+                    log::debug!("Successfully finished ZIP archive on drop.");
+                }
+                Err(e) => {
+                    log::error!("Failed to finish ZIP archive: {e}");
+                }
+            }
+        }
     }
 }

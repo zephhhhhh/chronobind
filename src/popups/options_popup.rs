@@ -21,8 +21,14 @@ use ratatui::{
 pub enum OptionsPopupCommand {
     /// Command to update the app configuration with new settings.
     UpdateConfiguration(ChronoBindAppConfig),
-    /// Command to export all backups.
+    /// Command to export all backups from the current branch.
     ExportBackups,
+    /// Command to export all backups across all branches.
+    ExportAllBackups,
+    /// Command to perform a full branch backup on the currently selected branch.
+    FullBranchBackup,
+    /// Command to perform a full branch backup for all branches.
+    FullBranchBackupAllBranches
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,6 +38,9 @@ pub enum OptionKind {
     MaximumAutoBackups,
     PreferredBranch,
     ExportCurrentBranch,
+    ExportAllBranches,
+    FullBranchBackup,
+    FullAllBranchesBackup,
 }
 
 impl OptionKind {
@@ -44,6 +53,9 @@ impl OptionKind {
             Self::MaximumAutoBackups,
             Self::PreferredBranch,
             Self::ExportCurrentBranch,
+            Self::ExportAllBranches,
+            Self::FullBranchBackup,
+            Self::FullAllBranchesBackup,
         ]
     }
 
@@ -57,6 +69,9 @@ impl OptionKind {
             Self::MaximumAutoBackups => "Maximum allowed automatic backups",
             Self::PreferredBranch => "Preferred WoW branch",
             Self::ExportCurrentBranch => "Export backups from current branch",
+            Self::ExportAllBranches => "Export backups from all branches",
+            Self::FullBranchBackup => "Full branch backup (Includes all files)",
+            Self::FullAllBranchesBackup => "Full backup of all branches (Includes all files)",
         }
     }
 
@@ -109,6 +124,9 @@ impl OptionKind {
                     Line::from(highlight_str(format!("{}: None", self.title()), hovered))
                 }
             }
+            Self::ExportAllBranches | Self::FullBranchBackup | Self::FullAllBranchesBackup=> {
+                Line::from(highlight_str(self.title(), hovered))
+            }
         }
     }
 
@@ -123,8 +141,8 @@ impl OptionKind {
             Self::MaximumAutoBackups | Self::PreferredBranch => {
                 vec!["←/→: Adjust".to_string()]
             }
-            Self::ExportCurrentBranch => {
-                vec![format!("{ENTER_SYMBOL}/→/Space: Export Backups")]
+            Self::ExportCurrentBranch | Self::ExportAllBranches | Self::FullBranchBackup | Self::FullAllBranchesBackup => {
+                vec![format!("{ENTER_SYMBOL}/→/Space: Export")]
             }
         }
     }
@@ -207,6 +225,15 @@ impl OptionsPopup {
             }
             OptionKind::ExportCurrentBranch => {
                 self.push_command(OptionsPopupCommand::ExportBackups);
+            }
+            OptionKind::ExportAllBranches => {
+                self.push_command(OptionsPopupCommand::ExportAllBackups);
+            }
+            OptionKind::FullBranchBackup => {
+                self.push_command(OptionsPopupCommand::FullBranchBackup);
+            }
+            OptionKind::FullAllBranchesBackup => {
+                self.push_command(OptionsPopupCommand::FullBranchBackupAllBranches);
             }
             _ => {}
         }

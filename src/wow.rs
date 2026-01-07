@@ -257,7 +257,7 @@ impl WoWInstall {
     /// Returns the path to the interface directory for this installation.
     #[inline]
     #[must_use]
-    pub fn get_inteface_path(&self) -> PathBuf {
+    pub fn get_interface_path(&self) -> PathBuf {
         let install_path = self.get_branch_path();
         install_path.join(INTERFACE_DIR)
     }
@@ -473,7 +473,7 @@ const FRIENDLY_NAMES: &[(&str, &str)] = &[
 
 /// Name of the `ChronoBind` directory
 pub const CHRONOBIND_DIR: &str = "ChronoBind";
-/// Name of the `ChronoBind` directory
+/// Name of the character backups directory within the `ChronoBind` directory.
 pub const CHARACTER_BACKUPS_DIR: &str = "Characters";
 /// Name of the backups directory within a character's folder.
 pub const BACKUPS_DIR_NAME: &str = "Backups";

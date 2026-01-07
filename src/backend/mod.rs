@@ -1,7 +1,10 @@
 pub mod task;
 pub mod zip_rw;
 
-use std::sync::mpsc::Sender as MPSCSender;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex, mpsc::Sender as MPSCSender},
+};
 
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use itertools::Itertools;
@@ -9,12 +12,15 @@ use zip::read::ZipArchive;
 
 use crate::{
     backend::{
-        task::{IOProgress, IOTask},
+        task::{IOProgress, IOTask, TaskBuilder},
         zip_rw::ChronoZipWriter,
     },
     files::AnyResult,
     tui_log::mock_prefix,
-    wow::{WoWCharacter, WoWCharacterBackup, WoWInstall, WoWInstalls},
+    wow::{
+        CHARACTER_BACKUPS_DIR, CHRONOBIND_DIR, INTERFACE_DIR, USER_DIR, WoWCharacter,
+        WoWCharacterBackup, WoWInstall, WoWInstalls,
+    },
 };
 
 use std::fs as filesystem;
@@ -34,6 +40,8 @@ pub const DISPLAY_TIME_FORMAT: &str = "%d/%m/%y %H:%M";
 
 /// Default filename for backup exports.
 pub const DEFAULT_EXPORT_FILENAME: &str = "chronobind_export";
+/// Default filename for full branch backups.
+pub const DEFAULT_BRANCH_BACKUP_FILENAME: &str = "chronobind_backup";
 
 /// File extension for backup files.
 pub const BACKUP_FILE_EXTENSION: &str = "zip";
@@ -532,11 +540,53 @@ pub fn delete_backup_file(
     Ok(!bad_removal)
 }
 
+fn export_chronobind_backups_for_install_internal(
+    zip_writer: Arc<Mutex<ChronoZipWriter<'static>>>,
+    install_backup_path: PathBuf,
+    zip_base_path: PathBuf,
+) -> IOTask {
+    IOTask::new(move |tx| {
+        if !install_backup_path.exists() {
+            log::warn!(
+                "Install backup path `{}` does not exist, skipping export.",
+                install_backup_path.display()
+            );
+            tx.send(IOProgress::Finished)?;
+            return Ok(());
+        }
+
+        let mut dir_iter = walk_dir_recursive::<&str>(&install_backup_path, &[])?;
+        dir_iter.retain(|p| crate::files::cmp_extension(p, BACKUP_FILE_EXTENSION));
+        let total = dir_iter.len();
+
+        if let Ok(mut zip) = zip_writer.lock() {
+            for (backups_completed, current_backup_file) in dir_iter.iter().enumerate() {
+                let relative_path =
+                    zip_base_path.join(current_backup_file.strip_prefix(&install_backup_path)?);
+                zip.copy_file(relative_path.to_string_lossy(), current_backup_file)?;
+
+                log::info!("Exported backup `{}`", relative_path.display());
+                tx.send(IOProgress::Advanced {
+                    completed: backups_completed.saturating_add(1),
+                    total,
+                    label: Some(crate::files::file_stem_str(relative_path)),
+                })?;
+            }
+
+            log::debug!(
+                "Finished exporting backups to `{}`",
+                install_backup_path.display()
+            );
+            tx.send(IOProgress::Finished)?;
+        }
+
+        Ok(())
+    })
+}
+
 /// Export chronobind backups for the given `WoW` install to the specified export path.
-/// All characters *MUST* belong to the given install.
 /// # Errors
 /// * If any file operations fail.
-/// * If any characters that do not belong to the given install are provided.
 #[must_use]
 pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
     install: &WoWInstall,
@@ -544,12 +594,6 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
     mock_mode: bool,
 ) -> Option<IOTask> {
     let final_zip_path = export_path.into();
-
-    log::info!(
-        "Exporting chronobind backups for install `{}` to `{}`",
-        install.display_branch_name(),
-        final_zip_path.display()
-    );
 
     if !crate::files::cmp_extension(&final_zip_path, BACKUP_FILE_EXTENSION) {
         log::error!(
@@ -560,36 +604,15 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
     }
 
     let install_backup_path = install.get_character_backups_dir();
+    let branch_dir = install.get_product_dir();
 
-    let task = IOTask::new(move |tx| {
-        let mut dir_iter = walk_dir_recursive::<&str>(&install_backup_path, &[])?;
-        dir_iter.retain(|p| crate::files::cmp_extension(p, BACKUP_FILE_EXTENSION));
-        let total = dir_iter.len();
+    let zip_writer = ChronoZipWriter::new_arc(&final_zip_path, mock_mode)?;
 
-        let mut zip = ChronoZipWriter::new(&final_zip_path, mock_mode)?;
-
-        for (backups_completed, current_backup_file) in dir_iter.iter().enumerate() {
-            let relative_path = current_backup_file.strip_prefix(&install_backup_path)?;
-            zip.copy_file(relative_path.to_string_lossy(), current_backup_file)?;
-
-            log::info!("Exported backup `{}`", relative_path.display());
-            tx.send(IOProgress::Advanced {
-                completed: backups_completed.saturating_add(1),
-                total,
-                label: Some(crate::files::file_stem_str(relative_path)),
-            })?;
-        }
-
-        zip.finish()?;
-
-        log::debug!(
-            "Finished exporting backups to `{}`",
-            install_backup_path.display()
-        );
-        tx.send(IOProgress::Finished)?;
-
-        Ok(())
-    })
+    let task = export_chronobind_backups_for_install_internal(
+        zip_writer.clone(),
+        install_backup_path,
+        branch_dir.into(),
+    )
     .name(format!(
         "Exporting backups from {}",
         install.display_branch_name()
@@ -599,27 +622,227 @@ pub fn export_chronobind_backups_for_install<P: Into<PathBuf>>(
     Some(task)
 }
 
-pub fn export_all_chronobind_backups(
-    wow: WoWInstalls,
-    export_path: PathBuf,
+pub fn export_all_chronobind_backups<P: Into<PathBuf>>(
+    installs: &WoWInstalls,
+    export_path: P,
     mock_mode: bool,
-) -> IOTask {
-    todo!();
+) -> Option<IOTask> {
+    let final_zip_path = export_path.into();
+
+    if !crate::files::cmp_extension(&final_zip_path, BACKUP_FILE_EXTENSION) {
+        log::error!(
+            "Export path `{}` is not a `.{BACKUP_FILE_EXTENSION}` file, expected a file to create the export.",
+            final_zip_path.display()
+        );
+        return None;
+    }
+
+    log::info!(
+        "Exporting chronobind backups for all installs `{}`",
+        final_zip_path.display()
+    );
+
+    let zip_writer = ChronoZipWriter::new_arc(&final_zip_path, mock_mode)?;
+
+    let mut task_builder = TaskBuilder::<IOTask>::new();
+    for install in installs.iter() {
+        task_builder.add_task(
+            export_chronobind_backups_for_install_internal(
+                zip_writer.clone(),
+                install.get_character_backups_dir(),
+                install.get_product_dir().into(),
+            )
+            .name(format!(
+                "Exporting backups from {}",
+                install.display_branch_name()
+            ))
+            .show_task_label(true),
+        );
+    }
+
+    task_builder.build()
 }
 
 /// Options for what to back up in a complete `WoW` install backup.
 #[derive(Debug, Clone)]
 pub struct InstallBackupOptions {
     /// Whether to backup the `WTF` folder.
-    pub backup_wtf: bool,
+    pub include_wtf: bool,
     /// Whether to backup the `Interface` folder.
-    pub backup_interface: bool,
+    pub include_interface: bool,
+    /// Whether to backup the `ChronoBind` character backups.
+    pub include_character_backups: bool,
+}
+
+impl InstallBackupOptions {
+    /// Returns an `InstallBackupOptions` with all backup options enabled.
+    #[inline]
+    #[must_use]
+    pub const fn all() -> Self {
+        Self {
+            include_wtf: true,
+            include_interface: true,
+            include_character_backups: true,
+        }
+    }
+
+    /// Returns `true` if all backup options are disabled.
+    #[must_use]
+    pub const fn are_all_disabled(&self) -> bool {
+        !self.include_character_backups && !self.include_interface && !self.include_wtf
+    }
+}
+
+/// Export a folder to the given ZIP writer as part of a backup export.
+/// # Errors
+/// Returns an error if any file operations fail.
+fn export_folder_to_zip(
+    zip_writer: Arc<Mutex<ChronoZipWriter<'static>>>,
+    folder_path: PathBuf,
+    zip_base_path: PathBuf,
+) -> IOTask {
+    IOTask::new(move |tx| {
+        if !folder_path.exists() {
+            log::warn!(
+                "Path `{}` does not exist, skipping export.",
+                folder_path.display()
+            );
+            tx.send(IOProgress::Finished)?;
+            return Ok(());
+        }
+
+        let dir_iter = walk_dir_recursive::<&str>(&folder_path, &[])?;
+        let total = dir_iter.len();
+
+        if let Ok(mut zip) = zip_writer.lock() {
+            for (backups_completed, current_backup_file) in dir_iter.iter().enumerate() {
+                let relative_path =
+                    zip_base_path.join(current_backup_file.strip_prefix(&folder_path)?);
+                zip.copy_file(relative_path.to_string_lossy(), current_backup_file)?;
+
+                log::info!("Exported backup `{}`", relative_path.display());
+                tx.send(IOProgress::Advanced {
+                    completed: backups_completed.saturating_add(1),
+                    total,
+                    label: Some(crate::files::file_stem_str(relative_path)),
+                })?;
+            }
+
+            log::debug!("Finished exporting folder `{}`", folder_path.display());
+            tx.send(IOProgress::Finished)?;
+        }
+
+        Ok(())
+    })
 }
 
 /// Create a backup of the given `WoW` install, backing up the selected contents of the install.
+#[must_use]
+fn backup_complete_install_internal(
+    zip_writer: &Arc<Mutex<ChronoZipWriter<'static>>>,
+    install: &WoWInstall,
+    backup_options: &InstallBackupOptions,
+) -> Option<IOTask> {
+    let branch_dir = PathBuf::from(install.get_product_dir());
+
+    let mut task_builder = TaskBuilder::<IOTask>::new();
+    if backup_options.include_wtf {
+        let wtf_path = install.get_wtf_path();
+        task_builder.add_task(
+            export_folder_to_zip(zip_writer.clone(), wtf_path, branch_dir.join(USER_DIR))
+                .name(format!(
+                    "Backing up WTF for {}",
+                    install.display_branch_name()
+                ))
+                .show_task_label(true),
+        );
+    }
+
+    if backup_options.include_interface {
+        let interface_path = install.get_interface_path();
+        task_builder.add_task(
+            export_folder_to_zip(
+                zip_writer.clone(),
+                interface_path,
+                branch_dir.join(INTERFACE_DIR),
+            )
+            .name(format!(
+                "Backing up Interface (Addons) for {}",
+                install.display_branch_name()
+            ))
+            .show_task_label(true),
+        );
+    }
+
+    if backup_options.include_character_backups {
+        let backups_path = install.get_character_backups_dir();
+        task_builder.add_task(
+            export_folder_to_zip(
+                zip_writer.clone(),
+                backups_path,
+                branch_dir.join(CHRONOBIND_DIR).join(CHARACTER_BACKUPS_DIR),
+            )
+            .name(format!(
+                "Backing up character backups for {}",
+                install.display_branch_name()
+            ))
+            .show_task_label(true),
+        );
+    }
+
+    task_builder.build()
+}
+
+/// Create a backup of the given `WoW` install, backing up the selected contents of the install.
+#[must_use]
 pub fn backup_complete_install(
-    install: WoWInstall,
-    backup_options: InstallBackupOptions,
-) -> IOTask {
-    todo!()
+    install: &WoWInstall,
+    backup_options: &InstallBackupOptions,
+    final_zip_path: &Path,
+    mock_mode: bool,
+) -> Option<IOTask> {
+    if backup_options.are_all_disabled() {
+        log::warn!(
+            "No backup options selected for install `{}`, skipping backup.",
+            install.display_branch_name()
+        );
+        return None;
+    }
+
+    let zip_writer = ChronoZipWriter::new_arc(final_zip_path, mock_mode)?;
+
+    backup_complete_install_internal(&zip_writer, install, backup_options)
+}
+
+/// Create a backup of the given `WoW` install, backing up the selected contents of the install.
+#[must_use]
+pub fn backup_complete_all_installs(
+    installs: &WoWInstalls,
+    backup_options: &InstallBackupOptions,
+    final_zip_path: &Path,
+    mock_mode: bool,
+) -> Option<IOTask> {
+    if backup_options.are_all_disabled() {
+        log::warn!(
+            "No backup options selected while attempting backup all installs, skipping backup."
+        );
+        return None;
+    }
+
+    let zip_writer = ChronoZipWriter::new_arc(final_zip_path, mock_mode)?;
+
+    let mut task_builder = TaskBuilder::<IOTask>::new();
+    for install in installs.iter() {
+        if let Some(install_task) =
+            backup_complete_install_internal(&zip_writer, install, backup_options)
+        {
+            task_builder.add_task(
+                install_task
+                    .name(format!("Backing up {}", install.display_branch_name()))
+                    .show_task_label(true),
+            );
+        }
+    }
+
+    task_builder.build()
 }

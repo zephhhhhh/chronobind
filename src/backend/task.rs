@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::mpsc::{Receiver as MPSCReceiver, Sender as MPSCSender};
 use std::sync::{Arc, Mutex};
@@ -230,45 +231,59 @@ impl IOTask {
     }
 
     /// Adds a task to be executed after this has been completed.
+    #[inline]
     pub fn then<T: BackendTask + 'static>(mut self, next: T) -> Self {
         self.next = Some(Box::new(next));
         self
     }
 
     /// Adds a message to be sent after task completion.
+    #[inline]
     pub fn on_completion(mut self, msg: AppMessage) -> Self {
         self.add_after_message(msg);
         self
     }
 
     /// Adds a message to be sent after all tasks are complete.
+    #[inline]
     pub fn on_all_complete(mut self, msg: AppMessage) -> Self {
         self.add_on_all_complete(msg);
         self
     }
 
     /// Assign a name to the task.
+    #[inline]
     pub fn name<T: Into<String>>(mut self, name: T) -> Self {
         self.name = Some(name.into());
         self
     }
 
     /// Assign a label to the task.
+    #[inline]
     pub fn label<T: Into<String>>(mut self, label: T) -> Self {
         self.label = Some(label.into());
         self
     }
 
     /// Sets whether to show `IOTask` update labels in the progress display.
+    #[inline]
     pub const fn show_task_label(mut self, show: bool) -> Self {
         self.show_task_label = show;
         self
     }
 
     /// Adds a task to be executed after all tasks in this chain have been completed.
+    #[inline]
     pub fn with_back<T: BackendTask + 'static>(mut self, next: T) -> Self {
         self.add_next(Box::new(next));
         self
+    }
+
+    /// Boxes the `IOTask` into a `BackendTaskPtr`.
+    #[inline]
+    #[must_use]
+    pub fn boxed(self) -> BackendTaskPtr {
+        Box::new(self)
     }
 }
 
@@ -277,7 +292,7 @@ impl IOTask {
     #[inline]
     #[must_use]
     pub fn iotask_update_label_display(&self) -> Option<String> {
-        const MAX_LABEL_LEN: usize = 24;
+        const MAX_LABEL_LEN: usize = 26;
 
         let label = self.state.label.clone()?;
         Some(crate::ui::truncate_with_ellipsis(label, MAX_LABEL_LEN))
@@ -402,5 +417,42 @@ impl BackendTask for IOTask {
         } else {
             Some(std::mem::take(&mut self.after_messages))
         }
+    }
+}
+
+/// Builder for creating a sequence of backend tasks.
+#[must_use]
+#[derive(Debug)]
+pub struct TaskBuilder<T: BackendTask + 'static> {
+    tasks: VecDeque<T>,
+}
+
+impl<T: BackendTask + 'static> Default for TaskBuilder<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: BackendTask + 'static> TaskBuilder<T> {
+    /// Creates a new `TaskBuilder`.
+    pub const fn new() -> Self {
+        Self { tasks: VecDeque::new() }
+    }
+
+    /// Adds a task to the builder.
+    pub fn add_task(&mut self, task: T) -> &mut Self {
+        self.tasks.push_back(task);
+        self
+    }
+
+    /// Builds the task chain and returns the first task.
+    #[must_use]
+    pub fn build(mut self) -> Option<T> {
+        let mut current_task = self.tasks.pop_front()?;
+        while let Some(next_task) = self.tasks.pop_front() {
+            current_task.add_next(Box::new(next_task));
+        }
+
+        Some(current_task)
     }
 }

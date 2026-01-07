@@ -64,19 +64,18 @@ fn main() -> Result<()> {
     });
 
     terminal::log_terminal_info();
-    let better_symbols = terminal::TERMINAL_TYPE.supports_better_symbols();
 
     #[cfg(feature = "windows_terminal")]
     {
-        if !better_symbols
+        if terminal::has_been_relaunched() {
+            log::info!("Relaunch already attempted, not retrying...");
+        } else if !terminal::TERMINAL_TYPE.supports_better_symbols()
             && (!cfg!(debug_assertions) || RELAUNCH_IN_DEBUG)
             && try_relaunch_in_windows_terminal()
         {
             return Ok(());
         }
     }
-
-    log::debug!("Better symbols support: {better_symbols}");
 
     let mut app = ChronoBindApp::new();
     let mut terminal = ratatui::init();
@@ -92,6 +91,7 @@ fn main() -> Result<()> {
     result
 }
 
+/// Attempt to relaunch the application in Windows Terminal.
 #[cfg(feature = "windows_terminal")]
 fn try_relaunch_in_windows_terminal() -> bool {
     if terminal::windows_terminal_installed() {
@@ -223,6 +223,16 @@ impl ChronoBindApp {
         self.wow_installations.find_branch(branch)
     }
 
+    /// Find all characters on a specified `WoW` installation by its branch identifier.
+    #[inline]
+    #[must_use]
+    pub fn find_characters_on_branch(&self, branch_ident: &str) -> Vec<&Character> {
+        self.characters
+            .iter()
+            .filter(|c| c.branch().to_lowercase() == branch_ident)
+            .collect()
+    }
+
     /// Get the currently selected character index.
     #[inline]
     #[must_use]
@@ -336,35 +346,24 @@ impl ChronoBindApp {
     /// # Errors
     /// Returns an error if event polling or reading fails.
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        match wow::locate_wow_installs() {
-            Ok(installs) => {
-                log::debug!("Located {} WoW installations:", installs.len());
-                for install in installs {
-                    log::debug!(
-                        "{} at {}",
-                        install.display_branch_name(),
-                        install.install_path
-                    );
-                    let Some(characters) = install.find_all_characters() else {
-                        log::warn!(
-                            "Failed to find accounts in installation at {}",
-                            install.install_path
-                        );
-                        continue;
-                    };
+        log::debug!(
+            "Located {} WoW installations:",
+            self.wow_installations.len()
+        );
+        for install in self.wow_installations.iter() {
+            log::debug!(
+                "{} at {}",
+                install.display_branch_name(),
+                install.install_path
+            );
 
-                    for character in characters {
-                        log::debug!(
-                            " - Character: {} - {} / {}",
-                            character.name,
-                            character.realm,
-                            character.account
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to locate WoW installations: {e}");
+            for character in self.find_characters_on_branch(&install.branch_ident) {
+                log::debug!(
+                    " - Character: {} - {} / {}",
+                    character.name(),
+                    character.realm(),
+                    character.account()
+                );
             }
         }
 
@@ -579,35 +578,7 @@ impl ChronoBindApp {
                 log::info!("Switching to branch: {chosen_branch}");
                 self.set_selected_branch(chosen_branch);
             }
-            AppMessage::Options(cmd) => match cmd {
-                OptionsPopupCommand::UpdateConfiguration(new_config) => {
-                    log::debug!("Updating application configuration.");
-                    self.config = new_config.clone();
-                    self.config.save_to_file().unwrap_or_else(|e| {
-                        log::error!("Failed to save configuration file: {e}");
-                    });
-                }
-                OptionsPopupCommand::ExportBackups => {
-                    if let Some(selected_install) = self.get_selected_branch_install() {
-                        let export_filename = format!(
-                            "{}-{}-{}.{}",
-                            backend::DEFAULT_EXPORT_FILENAME,
-                            selected_install.branch_ident,
-                            backend::date_now_as_filename_timestamp(),
-                            backend::BACKUP_FILE_EXTENSION
-                        );
-                        let final_export_path = selected_install.install_path_join(export_filename);
-                        if let Some(task) = backend::export_chronobind_backups_for_install(
-                            selected_install,
-                            final_export_path,
-                            self.config.mock_mode,
-                        ) {
-                            log::info!("Starting export task..");
-                            self.open_popup(ProgressPopup::new(task));
-                        }
-                    }
-                }
-            },
+            AppMessage::Options(cmd) => self.handle_options_message(cmd),
             AppMessage::BackupManager(char_idx, cmd) => {
                 match cmd {
                     BackupManagerPopupCommand::DeleteBackup(backup_index) => {
@@ -696,6 +667,102 @@ impl ChronoBindApp {
                     return;
                 };
                 self.open_popup(RestorePopup::new(dest_char, Some(source_char)));
+            }
+        }
+    }
+
+    fn handle_options_message(&mut self, msg: &OptionsPopupCommand) {
+        match msg {
+            OptionsPopupCommand::UpdateConfiguration(new_config) => {
+                log::debug!("Updating application configuration.");
+                self.config = new_config.clone();
+                self.config.save_to_file().unwrap_or_else(|e| {
+                    log::error!("Failed to save configuration file: {e}");
+                });
+            }
+            OptionsPopupCommand::ExportBackups => {
+                if let Some(selected_install) = self.get_selected_branch_install() {
+                    let export_filename = format!(
+                        "{}-{}-{}.{}",
+                        backend::DEFAULT_EXPORT_FILENAME,
+                        selected_install.branch_ident,
+                        backend::date_now_as_filename_timestamp(),
+                        backend::BACKUP_FILE_EXTENSION
+                    );
+                    let final_export_path = selected_install.install_path_join(export_filename);
+                    if let Some(task) = backend::export_chronobind_backups_for_install(
+                        selected_install,
+                        final_export_path,
+                        self.config.mock_mode,
+                    ) {
+                        log::info!("Starting export task..");
+                        self.open_popup(ProgressPopup::new(task));
+                    }
+                }
+            }
+            OptionsPopupCommand::ExportAllBackups => {
+                let Some(root_path) = self.wow_installations.root_path.clone() else {
+                    log::error!("No WoW installations found for exporting all backups!");
+                    return;
+                };
+                let export_filename = format!(
+                    "{}-full-{}.{}",
+                    backend::DEFAULT_EXPORT_FILENAME,
+                    backend::date_now_as_filename_timestamp(),
+                    backend::BACKUP_FILE_EXTENSION
+                );
+                let final_export_path = root_path.join(export_filename);
+                if let Some(task) = backend::export_all_chronobind_backups(
+                    &self.wow_installations,
+                    final_export_path,
+                    self.config.mock_mode,
+                ) {
+                    log::info!("Starting export task..");
+                    self.open_popup(ProgressPopup::new(task));
+                }
+            }
+            OptionsPopupCommand::FullBranchBackup => {
+                if let Some(selected_install) = self.get_selected_branch_install() {
+                    let export_filename = format!(
+                        "{}-{}-{}.{}",
+                        backend::DEFAULT_BRANCH_BACKUP_FILENAME,
+                        selected_install.branch_ident,
+                        backend::date_now_as_filename_timestamp(),
+                        backend::BACKUP_FILE_EXTENSION
+                    );
+                    let final_export_path = selected_install.install_path_join(export_filename);
+                    if let Some(task) = backend::backup_complete_install(
+                        selected_install,
+                        &backend::InstallBackupOptions::all(),
+                        &final_export_path,
+                        self.config.mock_mode,
+                    ) {
+                        log::info!("Starting full branch backup export task..");
+                        self.open_popup(ProgressPopup::new(task));
+                    }
+                }
+            }
+            OptionsPopupCommand::FullBranchBackupAllBranches => {
+                let Some(root_path) = self.wow_installations.root_path.clone() else {
+                    log::error!("No WoW installations found for exporting all backups!");
+                    return;
+                };
+                let export_filename = format!(
+                    "{}-all-{}.{}",
+                    backend::DEFAULT_BRANCH_BACKUP_FILENAME,
+                    backend::date_now_as_filename_timestamp(),
+                    backend::BACKUP_FILE_EXTENSION
+                );
+                let final_export_path = root_path.join(export_filename);
+                if let Some(task) = backend::backup_complete_all_installs(
+                    &self.wow_installations,
+                    &backend::InstallBackupOptions::all(),
+                    &final_export_path,
+                    self.config.mock_mode,
+                ) {
+                    log::info!("Starting all branches full branch backup export task..");
+                    self.open_popup(ProgressPopup::new(task));
+                }
             }
         }
     }

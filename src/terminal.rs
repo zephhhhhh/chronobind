@@ -174,9 +174,17 @@ pub fn relaunch_in_windows_terminal() -> color_eyre::Result<()> {
             .arg(current_wd)
             .arg("--")
             .arg(current_exe)
+            .arg("-relaunched")
             .args(&args)
             .spawn()?;
 
         Ok(())
     }
+}
+
+/// Check if the application has been relaunched in Windows Terminal.
+#[inline]
+#[must_use]
+pub fn has_been_relaunched() -> bool {
+    std::env::args().any(|arg| arg == "-relaunched")
 }
