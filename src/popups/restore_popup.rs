@@ -10,7 +10,7 @@ use crate::{
 
 use itertools::Itertools;
 use ratatui::{
-    buffer::Buffer,
+    Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
     style::Stylize,
@@ -130,7 +130,7 @@ impl Popup for RestorePopup {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         let title_spans = vec![
             Span::from(" Restore "),
             self.dest_char.0.display_span(true),
@@ -160,7 +160,7 @@ impl Popup for RestorePopup {
 
         let list_view = popup_list(block, items);
 
-        list_with_scrollbar(list_view, area, buf, &mut self.state);
+        list_with_scrollbar(list_view, area, frame.buffer_mut(), &mut self.state);
     }
 
     fn should_close(&self) -> bool {

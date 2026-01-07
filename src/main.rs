@@ -29,13 +29,14 @@ use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::backend::task::IOTask;
+use crate::backend::task::{BackendTask, IOTask};
 use crate::config::ChronoBindAppConfig;
 use crate::palette::{ENTER_SYMBOL, PALETTE};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
 use crate::popups::backup_popup::{BackupPopup, BackupPopupCommand};
 use crate::popups::branch_popup::{BranchPopup, BranchPopupCommand};
 use crate::popups::confirm_popup::ConfirmationPopup;
+use crate::popups::export_manager_popup::{ExportManagerMessage, ExportManagerPopup, ImportDialog};
 use crate::popups::options_popup::{OptionsPopup, OptionsPopupCommand};
 use crate::popups::progress_popup::ProgressPopup;
 use crate::popups::restore_popup::{RestorePopup, RestorePopupCommand};
@@ -399,6 +400,9 @@ impl ChronoBindApp {
                 log::debug!("Quit requested");
                 self.should_exit = true;
             }
+            KeyCode::Char('u') => {
+                self.open_popup(ExportManagerPopup::new(self.selected_branch.clone()));
+            }
             _ => {}
         }
 
@@ -536,7 +540,7 @@ impl ChronoBindApp {
         match command {
             AppMessage::PerformBackupManagement(char_idx) => {
                 if let Some(task) = get_manage_auto_backup_task(self, *char_idx) {
-                    self.open_popup(ProgressPopup::new(task));
+                    self.handle_task(task);
                 }
             }
             AppMessage::Backup(char_idx, backup_command) => {
@@ -545,7 +549,7 @@ impl ChronoBindApp {
             AppMessage::Restore(char_idx, restore_command) => match restore_command {
                 RestorePopupCommand::RestoreBackup(backup) => {
                     if let Some(task) = character_restore_task(self, *char_idx, backup) {
-                        self.open_popup(ProgressPopup::new(task));
+                        self.handle_task(task);
                     }
                 }
             },
@@ -572,7 +576,7 @@ impl ChronoBindApp {
                     self.config.mock_mode,
                 )
                 .on_all_complete(AppMessage::PerformBackupManagement(*char_idx));
-                self.open_popup(ProgressPopup::new(task));
+                self.handle_task(task);
             }
             AppMessage::Branch(BranchPopupCommand::SelectBranch(chosen_branch)) => {
                 log::info!("Switching to branch: {chosen_branch}");
@@ -596,6 +600,9 @@ impl ChronoBindApp {
             AppMessage::ConfirmAction(action, action_line) => {
                 log::debug!("Showing confirmation popup for action.");
                 self.show_confirmation_popup(*action.clone(), action_line.clone());
+            }
+            AppMessage::ExportManager(cmd) => {
+                self.handle_export_manager_message(cmd);
             }
         }
     }
@@ -623,7 +630,7 @@ impl ChronoBindApp {
                     false,
                     self.config.mock_mode,
                 );
-                self.open_popup(ProgressPopup::new(task));
+                self.handle_task(task);
             }
             BackupPopupCommand::BackupAllFiles => {
                 let Some(character) = self.character_with_install(char_idx) else {
@@ -636,7 +643,7 @@ impl ChronoBindApp {
                     false,
                     self.config.mock_mode,
                 );
-                self.open_popup(ProgressPopup::new(task));
+                self.handle_task(task);
             }
             BackupPopupCommand::RestoreFromBackup => {
                 if !self.refresh_character_backups(char_idx) {
@@ -680,88 +687,79 @@ impl ChronoBindApp {
                     log::error!("Failed to save configuration file: {e}");
                 });
             }
-            OptionsPopupCommand::ExportBackups => {
+        }
+    }
+
+    fn handle_export_manager_message(&mut self, msg: &ExportManagerMessage) {
+        let export_name = backend::get_export_filename("Chronobind");
+        match msg {
+            ExportManagerMessage::ExportCurrentBranchChronoBind => {
                 if let Some(selected_install) = self.get_selected_branch_install() {
-                    let export_filename = format!(
-                        "{}-{}-{}.{}",
-                        backend::DEFAULT_EXPORT_FILENAME,
-                        selected_install.branch_ident,
-                        backend::date_now_as_filename_timestamp(),
-                        backend::BACKUP_FILE_EXTENSION
-                    );
-                    let final_export_path = selected_install.install_path_join(export_filename);
-                    if let Some(task) = backend::export_chronobind_backups_for_install(
+                    let final_export_path = selected_install.install_path_join(&export_name);
+                    if let Some(task) = backend::export_install(
                         selected_install,
-                        final_export_path,
-                        self.config.mock_mode,
-                    ) {
-                        log::info!("Starting export task..");
-                        self.open_popup(ProgressPopup::new(task));
-                    }
-                }
-            }
-            OptionsPopupCommand::ExportAllBackups => {
-                let Some(root_path) = self.wow_installations.root_path.clone() else {
-                    log::error!("No WoW installations found for exporting all backups!");
-                    return;
-                };
-                let export_filename = format!(
-                    "{}-full-{}.{}",
-                    backend::DEFAULT_EXPORT_FILENAME,
-                    backend::date_now_as_filename_timestamp(),
-                    backend::BACKUP_FILE_EXTENSION
-                );
-                let final_export_path = root_path.join(export_filename);
-                if let Some(task) = backend::export_all_chronobind_backups(
-                    &self.wow_installations,
-                    final_export_path,
-                    self.config.mock_mode,
-                ) {
-                    log::info!("Starting export task..");
-                    self.open_popup(ProgressPopup::new(task));
-                }
-            }
-            OptionsPopupCommand::FullBranchBackup => {
-                if let Some(selected_install) = self.get_selected_branch_install() {
-                    let export_filename = format!(
-                        "{}-{}-{}.{}",
-                        backend::DEFAULT_BRANCH_BACKUP_FILENAME,
-                        selected_install.branch_ident,
-                        backend::date_now_as_filename_timestamp(),
-                        backend::BACKUP_FILE_EXTENSION
-                    );
-                    let final_export_path = selected_install.install_path_join(export_filename);
-                    if let Some(task) = backend::backup_complete_install(
-                        selected_install,
-                        &backend::InstallBackupOptions::all(),
+                        backend::InstallBackupOptions::character_backups(),
                         &final_export_path,
                         self.config.mock_mode,
                     ) {
-                        log::info!("Starting full branch backup export task..");
-                        self.open_popup(ProgressPopup::new(task));
+                        self.handle_task(task);
                     }
                 }
             }
-            OptionsPopupCommand::FullBranchBackupAllBranches => {
+            ExportManagerMessage::ExportAllBranchesChronoBind => {
                 let Some(root_path) = self.wow_installations.root_path.clone() else {
                     log::error!("No WoW installations found for exporting all backups!");
                     return;
                 };
-                let export_filename = format!(
-                    "{}-all-{}.{}",
-                    backend::DEFAULT_BRANCH_BACKUP_FILENAME,
-                    backend::date_now_as_filename_timestamp(),
-                    backend::BACKUP_FILE_EXTENSION
-                );
-                let final_export_path = root_path.join(export_filename);
-                if let Some(task) = backend::backup_complete_all_installs(
+                let final_export_path = root_path.join(&export_name);
+                if let Some(task) = backend::export_all_installs(
                     &self.wow_installations,
-                    &backend::InstallBackupOptions::all(),
+                    backend::InstallBackupOptions::character_backups(),
                     &final_export_path,
                     self.config.mock_mode,
                 ) {
-                    log::info!("Starting all branches full branch backup export task..");
-                    self.open_popup(ProgressPopup::new(task));
+                    self.handle_task(task);
+                }
+            }
+            ExportManagerMessage::ExportFullCurrentBranch => {
+                if let Some(selected_install) = self.get_selected_branch_install() {
+                    let final_export_path = selected_install.install_path_join(&export_name);
+                    if let Some(task) = backend::export_install(
+                        selected_install,
+                        backend::InstallBackupOptions::all(),
+                        &final_export_path,
+                        self.config.mock_mode,
+                    ) {
+                        self.handle_task(task);
+                    }
+                }
+            }
+            ExportManagerMessage::ExportFullAllBranches => {
+                let Some(root_path) = self.wow_installations.root_path.clone() else {
+                    log::error!("No WoW installations found for exporting all backups!");
+                    return;
+                };
+                let final_export_path = root_path.join(&export_name);
+                if let Some(task) = backend::export_all_installs(
+                    &self.wow_installations,
+                    backend::InstallBackupOptions::all(),
+                    &final_export_path,
+                    self.config.mock_mode,
+                ) {
+                    self.handle_task(task);
+                }
+            }
+            ExportManagerMessage::OpenImportDialog => {
+                self.open_popup(ImportDialog::new());
+            }
+            ExportManagerMessage::ImportChronoBindBackup(import_path, settings) => {
+                if let Some(task) = backend::import_chronobind_backup(
+                    import_path.clone(),
+                    &self.wow_installations,
+                    *settings,
+                    self.config.mock_mode,
+                ) {
+                    self.handle_task(task);
                 }
             }
         }
@@ -886,6 +884,7 @@ impl ChronoBindApp {
                         "↑/↓".to_string(),
                         format!("{}/→/Space: Select", ENTER_SYMBOL),
                         "(B)ackup".to_string(),
+                        "U: Import/Export".to_string(),
                         "(C)opy".to_string(),
                     ];
                     if self.copied_char.is_some() {
@@ -899,6 +898,7 @@ impl ChronoBindApp {
                     format!("{} /Space/→: Toggle", ENTER_SYMBOL),
                     "Ctrl+A: Select All".to_string(),
                     "(B)ackup".to_string(),
+                    "U: Import/Export".to_string(),
                     "(C)opy".to_string(),
                 ],
                 InputMode::Popup => self.active_popup().map_or_else(Vec::new, |popup| {
@@ -970,12 +970,18 @@ impl ChronoBindApp {
             };
         log::debug!("Closing popup: {popup_id} (should_close: {should_close})");
         if let Some(previous_input) = previous_input {
-            log::info!("Restoring input mode to: {previous_input:?}");
+            log::debug!("Restoring input mode to: {previous_input:?}");
             self.input_mode = previous_input;
         } else {
-            log::info!("Not restoring input mode.");
+            log::debug!("Not restoring input mode.");
         }
         self.popup_stack.pop();
+    }
+
+    /// Handle a backend task by opening a progress popup.
+    #[inline]
+    pub fn handle_task<T: BackendTask + 'static>(&mut self, task: T) {
+        self.open_popup(ProgressPopup::new(Box::new(task)));
     }
 
     /// Send a message to the current popup.

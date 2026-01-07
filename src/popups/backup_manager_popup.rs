@@ -9,7 +9,7 @@ use crate::{
 
 use itertools::Itertools;
 use ratatui::{
-    buffer::Buffer,
+    Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
     style::Stylize,
@@ -116,7 +116,7 @@ impl Popup for BackupManagerPopup {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         let block = popup_block(vec![
             Span::from(" Backups for "),
             self.character.0.display_span(true),
@@ -144,7 +144,7 @@ impl Popup for BackupManagerPopup {
             .collect_vec();
 
         let list_view = popup_list(block, items);
-        list_with_scrollbar(list_view, area, buf, &mut self.state);
+        list_with_scrollbar(list_view, area, frame.buffer_mut(), &mut self.state);
     }
 
     fn process_message(&mut self, message: &PopupMessage) {

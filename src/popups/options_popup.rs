@@ -2,12 +2,14 @@
 use crate::palette::*;
 use crate::{
     ChronoBindAppConfig,
+    popups::toggle_option,
     ui::{KeyCodeExt, messages::AppMessage},
     widgets::popup::{Popup, popup_block, popup_list_no_block},
     wow::WoWInstalls,
 };
 
 use ratatui::{
+    Frame,
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Direction, Layout, Rect},
@@ -21,14 +23,6 @@ use ratatui::{
 pub enum OptionsPopupCommand {
     /// Command to update the app configuration with new settings.
     UpdateConfiguration(ChronoBindAppConfig),
-    /// Command to export all backups from the current branch.
-    ExportBackups,
-    /// Command to export all backups across all branches.
-    ExportAllBackups,
-    /// Command to perform a full branch backup on the currently selected branch.
-    FullBranchBackup,
-    /// Command to perform a full branch backup for all branches.
-    FullBranchBackupAllBranches
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -37,10 +31,6 @@ pub enum OptionKind {
     MockMode,
     MaximumAutoBackups,
     PreferredBranch,
-    ExportCurrentBranch,
-    ExportAllBranches,
-    FullBranchBackup,
-    FullAllBranchesBackup,
 }
 
 impl OptionKind {
@@ -52,10 +42,6 @@ impl OptionKind {
             Self::MockMode,
             Self::MaximumAutoBackups,
             Self::PreferredBranch,
-            Self::ExportCurrentBranch,
-            Self::ExportAllBranches,
-            Self::FullBranchBackup,
-            Self::FullAllBranchesBackup,
         ]
     }
 
@@ -68,10 +54,6 @@ impl OptionKind {
             Self::MockMode => "Mock mode (Don't perform file operations)",
             Self::MaximumAutoBackups => "Maximum allowed automatic backups",
             Self::PreferredBranch => "Preferred WoW branch",
-            Self::ExportCurrentBranch => "Export backups from current branch",
-            Self::ExportAllBranches => "Export backups from all branches",
-            Self::FullBranchBackup => "Full branch backup (Includes all files)",
-            Self::FullAllBranchesBackup => "Full backup of all branches (Includes all files)",
         }
     }
 
@@ -82,7 +64,6 @@ impl OptionKind {
         &self,
         config: &ChronoBindAppConfig,
         installs: &WoWInstalls,
-        selected_branch: Option<&String>,
         hovered: bool,
     ) -> Line<'static> {
         match self {
@@ -108,25 +89,6 @@ impl OptionKind {
                     hovered,
                 ))
             }
-            Self::ExportCurrentBranch => {
-                if let Some(selected_branch) = selected_branch
-                    && let Some(selected_install) = installs.find_branch(selected_branch)
-                {
-                    Line::from(highlight_str(
-                        format!(
-                            "{} ({})",
-                            self.title(),
-                            selected_install.display_branch_name()
-                        ),
-                        hovered,
-                    ))
-                } else {
-                    Line::from(highlight_str(format!("{}: None", self.title()), hovered))
-                }
-            }
-            Self::ExportAllBranches | Self::FullBranchBackup | Self::FullAllBranchesBackup=> {
-                Line::from(highlight_str(self.title(), hovered))
-            }
         }
     }
 
@@ -140,9 +102,6 @@ impl OptionKind {
             }
             Self::MaximumAutoBackups | Self::PreferredBranch => {
                 vec!["←/→: Adjust".to_string()]
-            }
-            Self::ExportCurrentBranch | Self::ExportAllBranches | Self::FullBranchBackup | Self::FullAllBranchesBackup => {
-                vec![format!("{ENTER_SYMBOL}/→/Space: Export")]
             }
         }
     }
@@ -223,18 +182,6 @@ impl OptionsPopup {
                 self.configuration.mock_mode = !self.configuration.mock_mode;
                 config_changed = true;
             }
-            OptionKind::ExportCurrentBranch => {
-                self.push_command(OptionsPopupCommand::ExportBackups);
-            }
-            OptionKind::ExportAllBranches => {
-                self.push_command(OptionsPopupCommand::ExportAllBackups);
-            }
-            OptionKind::FullBranchBackup => {
-                self.push_command(OptionsPopupCommand::FullBranchBackup);
-            }
-            OptionKind::FullAllBranchesBackup => {
-                self.push_command(OptionsPopupCommand::FullBranchBackupAllBranches);
-            }
             _ => {}
         }
 
@@ -255,12 +202,7 @@ impl OptionsPopup {
             .iter()
             .enumerate()
             .map(|(i, option)| {
-                option.get_line(
-                    &self.configuration,
-                    &self.branches,
-                    self.selected_branch.as_ref(),
-                    i == selected_idx,
-                )
+                option.get_line(&self.configuration, &self.branches, i == selected_idx)
             })
             .collect::<Vec<Line>>();
 
@@ -408,16 +350,16 @@ impl Popup for OptionsPopup {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         let block = popup_block(" ChronoBind Options ");
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Fill(1), Constraint::Length(1)])
             .split(block.inner(area));
 
-        Widget::render(block, area, buf);
-        self.draw_options_menu(chunks[0], buf);
-        Self::draw_credits(chunks[1], buf);
+        Widget::render(block, area, frame.buffer_mut());
+        self.draw_options_menu(chunks[0], frame.buffer_mut());
+        Self::draw_credits(chunks[1], frame.buffer_mut());
     }
 
     fn should_close(&self) -> bool {
@@ -449,13 +391,6 @@ impl Popup for OptionsPopup {
     fn popup_height_percent(&self) -> u16 {
         80
     }
-}
-
-/// Create a line representing a toggle option.
-fn toggle_option(title: &str, selected: bool, hovered: bool) -> Line<'_> {
-    let colour = PALETTE.selection_fg(selected);
-    let content = format!("{} {}", checkbox(selected), highlight_str(title, hovered));
-    Line::from(content).fg(colour)
 }
 
 /// Get the display text for the preferred branch.

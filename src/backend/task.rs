@@ -166,6 +166,8 @@ impl SingleUseTaskFn {
                 std::thread::spawn(move || {
                     if let Err(e) = func(&tx) {
                         tx.send(IOProgress::Error(format!("{e:?}"))).ok();
+                    } else {
+                        tx.send(IOProgress::Finished).ok();
                     }
                 });
                 Some(rx)
@@ -436,7 +438,9 @@ impl<T: BackendTask + 'static> Default for TaskBuilder<T> {
 impl<T: BackendTask + 'static> TaskBuilder<T> {
     /// Creates a new `TaskBuilder`.
     pub const fn new() -> Self {
-        Self { tasks: VecDeque::new() }
+        Self {
+            tasks: VecDeque::new(),
+        }
     }
 
     /// Adds a task to the builder.

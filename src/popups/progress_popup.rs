@@ -3,13 +3,13 @@ use std::fmt::Debug;
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
 use crate::{
-    backend::task::{BackendTaskPtr, IOTask},
+    backend::task::BackendTaskPtr,
     ui::messages::AppMessage,
     widgets::popup::{Popup, popup_block},
 };
 
 use ratatui::{
-    buffer::Buffer,
+    Frame,
     layout::{Margin, Rect},
     style::Style,
     widgets::{Gauge, ListState, Widget},
@@ -30,11 +30,11 @@ pub struct ProgressPopup {
 
 impl ProgressPopup {
     #[must_use]
-    pub fn new(task: IOTask) -> Self {
+    pub fn new(task: BackendTaskPtr) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
         let mut popup = Self {
-            task: Box::new(task),
+            task,
             close: false,
             commands: vec![],
         };
@@ -84,7 +84,7 @@ impl Popup for ProgressPopup {
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         self.task.poll();
 
         let render_area = area.inner(Margin::new(1, 1));
@@ -102,7 +102,7 @@ impl Popup for ProgressPopup {
 
         self.check_finalise();
 
-        Widget::render(progress_bar, render_area, buf);
+        Widget::render(progress_bar, render_area, frame.buffer_mut());
     }
 
     fn should_close(&self) -> bool {

@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{Event, KeyEvent, KeyEventKind};
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::prelude::Stylize;
@@ -27,7 +26,7 @@ pub trait Popup {
     /// Called when a key is pressed down.
     fn on_key_down(&mut self, _key: &KeyEvent) {}
     /// Draw the popup into the given area of the buffer.
-    fn draw(&mut self, area: Rect, buf: &mut Buffer);
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>);
     /// Determine if the popup should close.
     fn should_close(&self) -> bool;
 
@@ -51,8 +50,8 @@ pub trait Popup {
 
     /// Handle any events for the popup.
     /// Returns true if the popup handled the event. (I.e. block further processing.)
-    fn handle_event(&mut self, key: &Event) -> bool {
-        if let Event::Key(key_event) = key
+    fn handle_event(&mut self, event: &Event) -> bool {
+        if let Event::Key(key_event) = event
             && key_event.kind == KeyEventKind::Press
         {
             self.on_key_down(key_event);
@@ -71,7 +70,7 @@ pub trait Popup {
         );
 
         Widget::render(Clear, popup_area, frame.buffer_mut());
-        self.draw(popup_area, frame.buffer_mut());
+        self.draw(popup_area, frame);
     }
     /// Retrieve and clear any commands issued by the popup.
     fn commands(&mut self) -> Option<Vec<AppMessage>> {

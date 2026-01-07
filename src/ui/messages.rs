@@ -5,8 +5,8 @@ use ratatui::text::{Line, Span, Text};
 use crate::{
     popups::{
         backup_manager_popup::BackupManagerPopupCommand, backup_popup::BackupPopupCommand,
-        branch_popup::BranchPopupCommand, options_popup::OptionsPopupCommand,
-        restore_popup::RestorePopupCommand,
+        branch_popup::BranchPopupCommand, export_manager_popup::ExportManagerMessage,
+        options_popup::OptionsPopupCommand, restore_popup::RestorePopupCommand,
     },
     ui::character::{CharacterIndex, CharacterWithIndex},
 };
@@ -31,6 +31,8 @@ pub enum AppMessage {
     /// Generic confirm action.
     /// Opens a confirmation popup for the given action.
     ConfirmAction(Box<Self>, Option<ConfirmActionText>),
+    /// Commands from the export manager popup.
+    ExportManager(ExportManagerMessage),
 }
 
 impl AppMessage {

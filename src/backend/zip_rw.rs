@@ -2,6 +2,8 @@ use filesystem::File;
 use std::path::Path;
 use std::sync::Mutex;
 use std::{fs as filesystem, sync::Arc};
+use zip::ZipArchive;
+use zip::read::ZipFile;
 
 use zip::{ZipWriter, write::FileOptions};
 
@@ -145,4 +147,138 @@ impl Drop for ChronoZipWriter<'_> {
             }
         }
     }
+}
+
+/// A simple ZIP writer wrapper/interface for creating backups.
+#[derive(Debug)]
+#[must_use]
+pub struct ChronoZipReader<'a> {
+    archive: ZipArchive<File>,
+    options: FileOptions<'a, ()>,
+}
+
+impl ChronoZipReader<'_> {
+    pub const DEFAULT_ZIP_OPTIONS: FileOptions<'static, ()> =
+        FileOptions::DEFAULT.compression_method(zip::CompressionMethod::Deflated);
+}
+
+impl<'a> ChronoZipReader<'a> {
+    /// Create a new `ChronoZipReader` with the specified file and options.
+    /// # Errors
+    /// Returns an error if the file cannot be created.
+    pub fn new(path: &Path) -> AnyResult<Self> {
+        let file = filesystem::File::open(path)?;
+        let archive = ZipArchive::new(file)?;
+        Ok(Self {
+            archive,
+            options: Self::DEFAULT_ZIP_OPTIONS,
+        })
+    }
+
+    /// Create a new `ChronoZipReader` wrapped in an `Arc<Mutex<>>` with the specified file and options.
+    /// # Errors
+    /// Returns an error if the file cannot be created.
+    #[must_use]
+    pub fn new_arc(path: &Path) -> Option<Arc<Mutex<Self>>> {
+        match Self::new(path) {
+            Ok(writer) => Some(Arc::new(Mutex::new(writer))),
+            Err(e) => {
+                log::error!(
+                    "Failed to create ChronoZipReader for path `{}`: {}",
+                    path.display(),
+                    e
+                );
+                None
+            }
+        }
+    }
+
+    /// Set the file options for the ZIP reader.
+    pub const fn with_options(mut self, options: FileOptions<'a, ()>) -> Self {
+        self.options = options;
+        self
+    }
+}
+
+impl ChronoZipReader<'_> {
+    /// Get a file by its index in the ZIP archive.
+    /// # Errors
+    /// Returns an error if the ZIP read or access fails.
+    #[inline]
+    pub fn by_index(&mut self, index: usize) -> AnyResult<ZipFile<'_, filesystem::File>> {
+        Ok(self.archive.by_index(index)?)
+    }
+
+    /// Search for a file entry by name
+    /// # Errors
+    /// Returns an error if the ZIP read or access fails.
+    pub fn by_name(&mut self, name: &str) -> AnyResult<ZipFile<'_, filesystem::File>> {
+        Ok(self.archive.by_name(name)?)
+    }
+
+    /// Get an iterator over the file names and directories in the ZIP archive.
+    #[inline]
+    pub fn file_names(&mut self) -> impl Iterator<Item = &str> {
+        self.archive.file_names()
+    }
+
+    /// Get an iterator over the directories in the root directory of the ZIP archive.
+    #[inline]
+    pub fn directories_in_root(&mut self) -> Vec<String> {
+        let mut dirs = std::collections::HashSet::new();
+
+        for name in self.archive.file_names() {
+            if let Some(first_component) = Path::new(name).components().next() {
+                dirs.insert(first_component.as_os_str().to_string_lossy().to_string());
+            }
+        }
+
+        dirs.into_iter().collect()
+    }
+
+    /// Get a `Vec` containing the files in the specified directory in the ZIP archive.
+    pub fn files_in_directory<P: AsRef<Path>>(&mut self, dir: P) -> Vec<String> {
+        let mut files = Vec::new();
+
+        for file_name in self.archive.file_names() {
+            if logical_is_path_inside(&dir, file_name) {
+                files.push(file_name.to_string());
+            }
+        }
+
+        files
+    }
+
+    /// Get the number of files in the ZIP archive.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.archive.len()
+    }
+
+    /// Returns `true` if the archive contains no files.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.archive.is_empty()
+    }
+}
+
+/// Check if a given child path is logically inside a parent path.
+#[inline]
+fn logical_is_path_inside<P: AsRef<Path>, Q: AsRef<Path>>(parent: P, child: Q) -> bool {
+    let parent = parent.as_ref().components().collect::<Vec<_>>();
+    let child = child.as_ref().components().collect::<Vec<_>>();
+
+    if parent.len() > child.len() {
+        return false;
+    }
+
+    for (p, c) in parent.iter().zip(child.iter()) {
+        if p != c {
+            return false;
+        }
+    }
+
+    true
 }

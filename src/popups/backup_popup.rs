@@ -8,7 +8,7 @@ use crate::{
 };
 
 use ratatui::{
-    buffer::Buffer,
+    Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
     text::{Line, Span},
@@ -133,7 +133,7 @@ impl Popup for BackupPopup {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         let block = popup_block(" Backup Options ");
         let item_names = [
             "Manage backups",
@@ -165,7 +165,7 @@ impl Popup for BackupPopup {
 
         let list_view = popup_list(block, items);
 
-        StatefulWidget::render(list_view, area, buf, &mut self.state);
+        StatefulWidget::render(list_view, area, frame.buffer_mut(), &mut self.state);
     }
 
     fn should_close(&self) -> bool {

@@ -10,7 +10,7 @@ use crate::{
 };
 
 use ratatui::{
-    buffer::Buffer,
+    Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::{Margin, Rect},
     style::Style,
@@ -77,7 +77,7 @@ impl Popup for ConfirmationPopup {
             KeyCode::Down | KeyCode::Char('s') => {
                 self.state.select_next();
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter | KeyCode::Char(' ' | 'd') => {
                 if let Some(selected) = self.state.selected() {
                     if selected == Self::CONFIRM_IDX {
                         self.confirmed();
@@ -93,7 +93,7 @@ impl Popup for ConfirmationPopup {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         let render_area = area.inner(Margin::new(1, 1));
 
         let block =
@@ -123,8 +123,8 @@ impl Popup for ConfirmationPopup {
 
         let list_view = popup_list(block, items);
 
-        Widget::render(Clear, render_area, buf);
-        StatefulWidget::render(list_view, render_area, buf, &mut self.state);
+        Widget::render(Clear, render_area, frame.buffer_mut());
+        StatefulWidget::render(list_view, render_area, frame.buffer_mut(), &mut self.state);
     }
 
     fn should_close(&self) -> bool {

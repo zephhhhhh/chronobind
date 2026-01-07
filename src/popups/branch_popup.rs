@@ -7,7 +7,7 @@ use crate::{
 };
 
 use ratatui::{
-    buffer::Buffer,
+    Frame,
     crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
     text::Line,
@@ -93,7 +93,7 @@ impl Popup for BranchPopup {
         }
     }
 
-    fn draw(&mut self, area: Rect, buf: &mut Buffer) {
+    fn draw(&mut self, area: Rect, frame: &mut Frame<'_>) {
         let block = popup_block(" Select a WoW Branch ");
 
         let selected_index = self.state.selected().unwrap_or(0);
@@ -116,7 +116,7 @@ impl Popup for BranchPopup {
             .collect::<Vec<ListItem>>();
 
         let list_view = popup_list(block, items);
-        StatefulWidget::render(list_view, area, buf, &mut self.state);
+        StatefulWidget::render(list_view, area, frame.buffer_mut(), &mut self.state);
     }
 
     fn should_close(&self) -> bool {

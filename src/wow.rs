@@ -49,7 +49,7 @@ impl WoWInstall {
     /// corresponding to the branch, I.e. retail is "_retail_".
     #[inline]
     #[must_use]
-    pub fn get_product_dir(&self) -> String {
+    pub fn get_product_dir_name(&self) -> String {
         format!("_{}_", self.branch_ident)
     }
 
@@ -60,7 +60,7 @@ impl WoWInstall {
     #[must_use]
     pub fn get_branch_path(&self) -> PathBuf {
         let install_path = PathBuf::from(&self.install_path);
-        install_path.join(self.get_product_dir())
+        install_path.join(self.get_product_dir_name())
     }
 
     /// Returns the path to the `ChronoBind` directory for this installation.
