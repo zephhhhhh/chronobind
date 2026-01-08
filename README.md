@@ -1,5 +1,8 @@
 # ChronoBind
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org)
+
 ChronoBind is a terminal-based UI tool for managing World of Warcraft character data.
 
 It allows you to easily copy character configurations to and from characters, as well as providing an easy-to-use
