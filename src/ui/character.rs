@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::wow::{
-    SAVED_VARIABLES_DIR, WoWCharacter, WoWCharacterBackup, WoWCharacterFile, WoWInstall,
+    SAVED_VARIABLES_DIR, WoWCharacter, WoWCharacterBackup, WoWCharacterFile, WoWClass, WoWInstall,
 };
 
 /// Type alias for a character index.
@@ -82,11 +82,32 @@ impl Character {
         &self.character.account
     }
 
+    /// Get the class of the character.
+    #[inline]
+    #[must_use]
+    pub const fn class(&self) -> WoWClass {
+        self.character.meta.class
+    }
+
     /// Get the class colour of the character.
     #[inline]
     #[must_use]
     pub fn class_colour(&self) -> Color {
-        self.character.class.class_colour()
+        self.class().class_colour()
+    }
+
+    /// Get the level of the character.
+    #[inline]
+    #[must_use]
+    pub const fn level(&self) -> Option<u8> {
+        self.character.meta.level
+    }
+
+    /// Get the GUID of the character.
+    #[inline]
+    #[must_use]
+    pub fn guid(&self) -> Option<String> {
+        self.character.meta.guid.clone()
     }
 
     /// Get the config files of the character.

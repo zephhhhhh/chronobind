@@ -4,6 +4,7 @@
 pub mod backend;
 pub mod config;
 pub mod files;
+pub mod lua_table_parser;
 pub mod palette;
 pub mod popups;
 pub mod tui_log;

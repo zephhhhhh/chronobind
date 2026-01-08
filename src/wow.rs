@@ -6,7 +6,12 @@ use itertools::Itertools;
 use prost::Message;
 use ratatui::style::Color;
 
-use crate::{backend::BACKUP_FILE_EXTENSION, files::read_folders_to_string, palette::PALETTE};
+use crate::{
+    backend::BACKUP_FILE_EXTENSION, files::read_folders_to_string,
+    lua_table_parser::LuaTableParser, palette::PALETTE,
+};
+
+use super::lua_table_parser::LuaValue;
 
 mod productdb {
     include!(concat!(env!("OUT_DIR"), "/productdb.rs"));
@@ -24,6 +29,9 @@ const WOW_PRODUCT_CODE_IDENT: &str = "wow";
 const WOW_PRODUCT_CODE_BRANCH_PREFIX: &str = concatcp!(WOW_PRODUCT_CODE_IDENT, "_");
 /// Identifier for the retail branch of World of Warcraft.
 pub const WOW_RETAIL_IDENT: &str = "retail";
+
+/// Name of the `ChronoBind` companion addon's `SavedVariables` file.
+pub const CHRONOBIND_COMPANION_FILE: &str = "ChronoBind_Companion.lua";
 
 /// Represents a World of Warcraft installation.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -328,7 +336,7 @@ impl WoWInstall {
                                 branch: self.branch_ident.clone(),
                                 name: char_name,
                                 realm: realm_name.clone(),
-                                class: WoWClass::Unknown,
+                                meta: WoWCharacterMetaData::default(),
                                 config_files: vec![],
                                 addon_files: vec![],
                                 backups: vec![],
@@ -446,8 +454,11 @@ pub struct WoWCharacter {
     pub name: String,
     /// The realm the character belongs to.
     pub realm: String,
-    /// The class of the character.
-    pub class: WoWClass,
+
+    /// The metadata associated with the character.
+    /// Class, Level, etc.
+    pub meta: WoWCharacterMetaData,
+
     /// Files associated with the character's configuration.
     pub config_files: Vec<WoWCharacterFile>,
     /// Files associated with the character's addons.
@@ -550,7 +561,7 @@ impl WoWCharacter {
             success = false;
         }
 
-        if !self.try_to_load_class() {
+        if self.meta.class == WoWClass::Unknown && !self.try_to_load_class() {
             log::warn!(
                 "Could not determine class for character {} on realm {} (account: {})",
                 self.name,
@@ -621,6 +632,14 @@ impl WoWCharacter {
                 }
 
                 let name = path.file_name()?.to_str()?.to_string();
+
+                if name.to_lowercase() == CHRONOBIND_COMPANION_FILE.to_lowercase() {
+                    // If we have this file, we don't want to show it in the list,
+                    // as it would not make sense to transfer this to other characters.
+                    self.meta.has_companion = true;
+                    return None;
+                }
+
                 let stem = path.file_stem()?.to_str()?.to_string();
                 Some(WoWCharacterFile {
                     name,
@@ -632,7 +651,54 @@ impl WoWCharacter {
             .sorted_by(|af, bf| bf.has_friendly_name().cmp(&af.has_friendly_name()))
             .collect();
 
+        if self.meta.has_companion {
+            self.load_chronobind_companion_data(char_path);
+        }
+
         true
+    }
+
+    /// Loads `ChronoBind` Companion addon data for this character, if available.
+    fn load_chronobind_companion_data(&mut self, char_path: &Path) -> bool {
+        let companion_file_path = char_path
+            .join(SAVED_VARIABLES_DIR)
+            .join(CHRONOBIND_COMPANION_FILE);
+
+        if !companion_file_path.exists() {
+            log::warn!(
+                "Tried to load ChronoBind Companion data for character {}, but file does not exist at path: {}",
+                self.name,
+                companion_file_path.display()
+            );
+            return false;
+        }
+
+        match std::fs::read_to_string(&companion_file_path) {
+            Ok(companion_src) => {
+                let char_name_and_realm = format!("{}-{}", self.name, self.realm);
+                if let Some(meta) = WoWCharacterMetaData::try_parse_from_lua_table(
+                    &companion_src,
+                    &char_name_and_realm,
+                ) {
+                    log::info!(
+                        "Successfully loaded ChronoBind Companion data for character {}: {:?}",
+                        self.name,
+                        meta
+                    );
+                    self.meta = meta;
+                    return true;
+                }
+                false
+            }
+            Err(e) => {
+                log::warn!(
+                    "Could not read ChronoBind Companion file for character {}: {}",
+                    self.name,
+                    e
+                );
+                false
+            }
+        }
     }
 
     /// Refresh the list of backups for this character.
@@ -690,7 +756,7 @@ impl WoWCharacter {
                 let parts: Vec<&str> = loot_class_line.split_whitespace().collect();
                 if parts.len() >= 3 {
                     let id = parts[2].trim_matches(|c| c == '\"').parse::<u8>().ok()?;
-                    self.class = WoWClass::from_id(id);
+                    self.meta.class = WoWClass::from_id(id);
                     Some(())
                 } else {
                     None
@@ -741,6 +807,64 @@ impl WoWCharacter {
             .iter()
             .filter(|b| !b.is_pinned && b.is_paste)
             .min_by_key(|b| b.timestamp)
+    }
+}
+
+/// Metadata associated with a World of Warcraft character.
+/// Most of this is stored in the `ChronoBind Companion` addon data.
+/// However some of this may be inferred from other sources.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WoWCharacterMetaData {
+    /// Indicates whether the character has `ChronoBind` Companion addon data available.
+    pub has_companion: bool,
+    /// The class of the character.
+    pub class: WoWClass,
+    /// The level of the character.
+    pub level: Option<u8>,
+    /// The unique GUID of the character.
+    pub guid: Option<String>,
+}
+
+impl WoWCharacterMetaData {
+    /// The root global variable name for `ChronoBind` Companion data.
+    const ROOT_GLOBAL: &str = "ChronoBindChar";
+    /// The variable name for the class ID in `ChronoBind` Companion data.
+    const CLASS_ID_NAME: &str = "classID";
+    /// The variable name for the character's level in `ChronoBind` Companion data.
+    const LEVEL_NAME: &str = "level";
+    /// The variable name for the character's GUID in `ChronoBind` Companion data.
+    const GUID_NAME: &str = "guid";
+
+    /// Parses character metadata from the source output of the `ChronoBind` Companion addon.
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn try_parse_from_lua_table(lua_table: &str, char_name_and_realm: &str) -> Option<Self> {
+        let globals = LuaTableParser::new(lua_table.trim()).parse_globals()?;
+
+        let root_table = globals.get(Self::ROOT_GLOBAL)?.as_table()?;
+        let char_table = root_table.get(char_name_and_realm)?.as_table()?;
+
+        let class = char_table
+            .get(Self::CLASS_ID_NAME)
+            .and_then(LuaValue::number_as_i64)
+            .map(|lvl| WoWClass::from_id(lvl as u8))
+            .unwrap_or_default();
+        let level = char_table
+            .get(Self::LEVEL_NAME)
+            .and_then(LuaValue::number_as_i64)
+            .map(|lvl| lvl as u8);
+        let guid = char_table
+            .get(Self::GUID_NAME)
+            .and_then(LuaValue::as_string)
+            .map(ToString::to_string);
+
+        Some(Self {
+            has_companion: true,
+            class,
+            level,
+            guid,
+        })
     }
 }
 
