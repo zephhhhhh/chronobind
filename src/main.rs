@@ -68,11 +68,10 @@ fn main() -> Result<()> {
         terminal_relaunch::CURRENT_TERMINAL.verbose_format()
     );
 
-    if !cfg!(debug_assertions) || RELAUNCH_IN_DEBUG {
-        match terminal_relaunch::relaunch_if_available_and_exit() {
-            Ok(()) => println!("Terminal features met!"),
-            Err(e) => eprintln!("Terminal could not relaunch: {e:?}"),
-        }
+    if (!cfg!(debug_assertions) || RELAUNCH_IN_DEBUG)
+        && let Err(e) = terminal_relaunch::relaunch_if_available_and_exit()
+    {
+        log::error!("Terminal relaunch failed: {e:?}");
     }
 
     let mut app = ChronoBindApp::new();
