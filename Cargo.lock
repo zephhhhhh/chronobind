@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "chronobind"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -1768,10 +1768,11 @@ dependencies = [
 
 [[package]]
 name = "terminal_relaunch"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e7e85fe06f75b4f73b551be7f730f6089b0394489953c334e1156ac97497f57"
+checksum = "1daf3d0475f3e15563a4a32540199f1aa841d6f40e9bbba360a59d03d9fd633b"
 dependencies = [
+ "log",
  "strum",
  "thiserror 2.0.17",
  "winreg",

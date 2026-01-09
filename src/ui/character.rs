@@ -291,6 +291,20 @@ impl Character {
         let content = self.display_name(show_realm);
         Span::from(content).fg(self.class_colour())
     }
+
+    /// Get a styled span for the character's display name, using the appropriate class colour,
+    /// and displaying relevant meta info, if available.
+    #[inline]
+    #[must_use]
+    pub fn display_span_with_meta(&self, show_realm: bool) -> Span<'static> {
+        self.level().map_or_else(
+            || self.display_span(show_realm),
+            |level| {
+                Span::from(format!("{} ({})", self.display_name(show_realm), level))
+                    .fg(self.class_colour())
+            },
+        )
+    }
 }
 
 // Character with meta data..

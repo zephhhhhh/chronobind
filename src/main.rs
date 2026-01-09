@@ -49,7 +49,7 @@ use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::{WoWCharacterBackup, WoWInstall, WoWInstalls};
 
 /// Whether to relaunch the terminal in debug mode on Windows Terminal if better symbols are not supported.
-const RELAUNCH_IN_DEBUG: bool = true;
+const RELAUNCH_IN_DEBUG: bool = false;
 
 /// Entry point..
 fn main() -> Result<()> {

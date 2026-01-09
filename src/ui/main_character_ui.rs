@@ -1,10 +1,10 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-use crate::InputMode;
 use crate::ui::Character;
 use crate::widgets::character_list::CharacterListWidget;
 use crate::widgets::file_list::{FileListConfig, FileListWidget};
+use crate::{ChronoBindAppConfig, InputMode};
 
 /// Manages the main UI drawing for the application.
 #[derive(Debug)]
@@ -38,7 +38,7 @@ impl MainCharacterUI {
         buf: &mut Buffer,
         characters: &[Character],
         input_mode: InputMode,
-        config: &crate::ChronoBindAppConfig,
+        config: &ChronoBindAppConfig,
     ) {
         self.main_screen(area, buf, characters, input_mode, config);
     }
@@ -50,7 +50,7 @@ impl MainCharacterUI {
         buf: &mut Buffer,
         characters: &[Character],
         input_mode: InputMode,
-        config: &crate::ChronoBindAppConfig,
+        config: &ChronoBindAppConfig,
     ) {
         // Split the main screen into left and right panels
         let chunks = Layout::default()
@@ -58,13 +58,20 @@ impl MainCharacterUI {
             .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(area);
 
-        self.character_list(chunks[0], buf, characters);
+        self.character_list(chunks[0], buf, characters, config);
         self.file_list(chunks[1], buf, characters, input_mode, config);
     }
 
     /// Render the character list panel.
-    fn character_list(&mut self, area: Rect, buf: &mut Buffer, characters: &[Character]) {
-        self.character_list_widget.render(area, buf, characters);
+    fn character_list(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        characters: &[Character],
+        config: &ChronoBindAppConfig,
+    ) {
+        self.character_list_widget
+            .render(area, buf, characters, config);
     }
 
     /// Render the file list panel.
@@ -74,7 +81,7 @@ impl MainCharacterUI {
         buf: &mut Buffer,
         characters: &[Character],
         input_mode: InputMode,
-        config: &crate::ChronoBindAppConfig,
+        config: &ChronoBindAppConfig,
     ) {
         let char_index = self
             .character_list_widget

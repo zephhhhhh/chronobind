@@ -8,6 +8,7 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, List, ListDirection, ListItem, ListState};
 
+use crate::config::ChronoBindAppConfig;
 use crate::ui::{Character, KeyCodeExt};
 
 #[allow(clippy::wildcard_imports)]
@@ -177,7 +178,13 @@ impl CharacterListWidget {
     }
 
     /// Render the character list widget
-    pub fn render(&mut self, area: Rect, buf: &mut Buffer, characters: &[Character]) {
+    pub fn render(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        characters: &[Character],
+        config: &ChronoBindAppConfig,
+    ) {
         const PADDING: usize = 1;
         const INDENT: usize = 3;
 
@@ -226,7 +233,11 @@ impl CharacterListWidget {
                             Span::from(ui_span_text)
                         };
 
-                        let main_span = character.display_span(false);
+                        let main_span = if config.display_character_levels {
+                            character.display_span_with_meta(false)
+                        } else {
+                            character.display_span(false)
+                        };
 
                         ListItem::new(Line::from(vec![ui_span_source, main_span]))
                     }

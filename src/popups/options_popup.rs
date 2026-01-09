@@ -29,6 +29,7 @@ pub enum OptionsPopupCommand {
 pub enum OptionKind {
     ShowFriendlyNames,
     MockMode,
+    DisplayCharacterLevels,
     MaximumAutoBackups,
     PreferredBranch,
 }
@@ -40,6 +41,7 @@ impl OptionKind {
         vec![
             Self::ShowFriendlyNames,
             Self::MockMode,
+            Self::DisplayCharacterLevels,
             Self::MaximumAutoBackups,
             Self::PreferredBranch,
         ]
@@ -52,6 +54,7 @@ impl OptionKind {
         match self {
             Self::ShowFriendlyNames => "Show friendly file names",
             Self::MockMode => "Mock mode (Don't perform file operations)",
+            Self::DisplayCharacterLevels => "Display character levels in list (if available)",
             Self::MaximumAutoBackups => "Maximum allowed automatic backups",
             Self::PreferredBranch => "Preferred WoW branch",
         }
@@ -71,6 +74,9 @@ impl OptionKind {
                 toggle_option(self.title(), config.show_friendly_names, hovered)
             }
             Self::MockMode => toggle_option(self.title(), config.mock_mode, hovered),
+            Self::DisplayCharacterLevels => {
+                toggle_option(self.title(), config.display_character_levels, hovered)
+            }
             Self::MaximumAutoBackups => {
                 let displayed_text = config.maximum_auto_backups.map_or_else(
                     || UNLIMITED_SYMBOL.to_string(),
@@ -97,7 +103,7 @@ impl OptionKind {
     #[must_use]
     pub fn get_bottom_bar_segments(&self) -> Vec<String> {
         match self {
-            Self::ShowFriendlyNames | Self::MockMode => {
+            Self::ShowFriendlyNames | Self::MockMode | Self::DisplayCharacterLevels => {
                 vec![format!("{ENTER_SYMBOL}/→/Space: Toggle")]
             }
             Self::MaximumAutoBackups | Self::PreferredBranch => {
@@ -180,6 +186,11 @@ impl OptionsPopup {
             }
             OptionKind::MockMode => {
                 self.configuration.mock_mode = !self.configuration.mock_mode;
+                config_changed = true;
+            }
+            OptionKind::DisplayCharacterLevels => {
+                self.configuration.display_character_levels =
+                    !self.configuration.display_character_levels;
                 config_changed = true;
             }
             _ => {}

@@ -1,6 +1,6 @@
 [package]
 name = "chronobind"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -15,7 +15,7 @@ strum = { version = "0.27.2", features = ["derive"] }
 
 # Relaunching terminal with better support for colours and symbols.
 # (Written by me)
-terminal_relaunch = "0.1.0"
+terminal_relaunch = { version = "0.1.2", features = ["logging"] }
 
 # Logging..
 log = "0.4.29"

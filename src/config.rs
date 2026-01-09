@@ -17,10 +17,12 @@ pub struct ChronoBindAppConfig {
     pub show_friendly_names: bool,
     /// Whether to operate in mock mode (no actual file operations).
     pub mock_mode: bool,
-    /// Preferred branch.
-    pub preferred_branch: Option<String>,
     /// Maximum automatic backups to keep per character.
     pub maximum_auto_backups: Option<usize>,
+    /// Whether to display character levels in the UI, if available.
+    pub display_character_levels: bool,
+    /// Preferred branch.
+    pub preferred_branch: Option<String>,
 }
 
 impl ChronoBindAppConfig {
@@ -36,6 +38,7 @@ impl Default for ChronoBindAppConfig {
             show_friendly_names: true,
             mock_mode,
             preferred_branch: Some(wow::WOW_RETAIL_IDENT.to_string()),
+            display_character_levels: true,
             maximum_auto_backups: Some(Self::DEFAULT_MAXIMUM_AUTO_BACKUPS),
         }
     }
