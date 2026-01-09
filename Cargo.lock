@@ -234,6 +234,7 @@ dependencies = [
  "strum",
  "terminal_relaunch",
  "winreg",
+ "winres",
  "zip",
 ]
 
@@ -1768,9 +1769,9 @@ dependencies = [
 
 [[package]]
 name = "terminal_relaunch"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1daf3d0475f3e15563a4a32540199f1aa841d6f40e9bbba360a59d03d9fd633b"
+checksum = "98aee097bb284cfdeea05655871d6135a0d911f7eeb3aeffab565dcb91f2716d"
 dependencies = [
  "log",
  "strum",
@@ -1910,6 +1911,15 @@ name = "time-core"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40868e7c1d2f0b8d73e4a8c7f0ff63af4f6d19be117e90bd73eb1d62cf831c6b"
+
+[[package]]
+name = "toml"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "tracing"
@@ -2347,6 +2357,15 @@ checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
 dependencies = [
  "cfg-if",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "winres"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b68db261ef59e9e52806f688020631e987592bd83619edccda9c47d42cde4f6c"
+dependencies = [
+ "toml",
 ]
 
 [[package]]

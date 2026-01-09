@@ -15,7 +15,7 @@ strum = { version = "0.27.2", features = ["derive"] }
 
 # Relaunching terminal with better support for colours and symbols.
 # (Written by me)
-terminal_relaunch = { version = "0.1.2", features = ["logging"] }
+terminal_relaunch = { version = "0.1.4", features = ["logging"] }
 
 # Logging..
 log = "0.4.29"
@@ -42,6 +42,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"
 
 [build-dependencies]
 prost-build = "0.14"

@@ -1,0 +1,31 @@
+<!ELEMENT svg (defs,circle+,line+,path+)>
+<!ATTLIST svg viewBox CDATA #REQUIRED>
+<!ELEMENT defs (linearGradient)>
+<!ELEMENT linearGradient (stop+)>
+<!ATTLIST linearGradient id NMTOKEN #REQUIRED>
+<!ATTLIST linearGradient x1 CDATA #REQUIRED>
+<!ATTLIST linearGradient y1 CDATA #REQUIRED>
+<!ATTLIST linearGradient x2 CDATA #REQUIRED>
+<!ATTLIST linearGradient y2 CDATA #REQUIRED>
+<!ELEMENT stop EMPTY>
+<!ATTLIST stop offset CDATA #REQUIRED>
+<!ATTLIST stop style CDATA #REQUIRED>
+<!ELEMENT circle EMPTY>
+<!ATTLIST circle cx NMTOKEN #REQUIRED>
+<!ATTLIST circle cy NMTOKEN #REQUIRED>
+<!ATTLIST circle r NMTOKEN #REQUIRED>
+<!ATTLIST circle fill CDATA #REQUIRED>
+<!ATTLIST circle stroke NMTOKEN #IMPLIED>
+<!ATTLIST circle stroke-width NMTOKEN #IMPLIED>
+<!ELEMENT line EMPTY>
+<!ATTLIST line x1 NMTOKEN #REQUIRED>
+<!ATTLIST line y1 NMTOKEN #REQUIRED>
+<!ATTLIST line x2 NMTOKEN #REQUIRED>
+<!ATTLIST line y2 NMTOKEN #REQUIRED>
+<!ATTLIST line stroke NMTOKEN #FIXED "white"><!ATTLIST line stroke-width (2|4) #REQUIRED><!ATTLIST line stroke-linecap NMTOKEN #FIXED "round">
+<!ELEMENT path EMPTY>
+<!ATTLIST path d CDATA #REQUIRED>
+<!ATTLIST path stroke CDATA #REQUIRED>
+<!ATTLIST path stroke-width NMTOKEN #REQUIRED>
+<!ATTLIST path stroke-linecap NMTOKEN #REQUIRED>
+<!ATTLIST path fill NMTOKEN #REQUIRED>
