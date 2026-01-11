@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    hash::Hash,
+    path::{Path, PathBuf},
+};
 
 use chrono::{DateTime, Local};
 use const_format::concatcp;
@@ -519,6 +522,16 @@ impl WoWCharacter {
             .fold(install.get_character_backups_dir(), |acc, p| acc.join(p))
     }
 
+    /// Returns a unique identifier string for the character in the format "branch/name-realm".
+    #[inline]
+    #[must_use]
+    pub fn character_identifier_string(&self) -> String {
+        format!("{}/{}-{}", self.branch, self.name, self.realm)
+    }
+}
+
+// File selection helper functions..
+impl WoWCharacter {
     /// Maps all files in the character's directory and addon directory.
     /// Also populates the character class information if possible.
     #[inline]

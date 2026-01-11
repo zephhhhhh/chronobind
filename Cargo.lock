@@ -1769,9 +1769,7 @@ dependencies = [
 
 [[package]]
 name = "terminal_relaunch"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98aee097bb284cfdeea05655871d6135a0d911f7eeb3aeffab565dcb91f2716d"
+version = "0.1.5"
 dependencies = [
  "log",
  "strum",
