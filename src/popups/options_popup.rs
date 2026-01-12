@@ -73,7 +73,7 @@ impl OptionKind {
             Self::ShowFriendlyNames => {
                 toggle_option(self.title(), config.show_friendly_names, hovered)
             }
-            Self::MockMode => toggle_option(self.title(), config.mock_mode, hovered),
+            Self::MockMode => toggle_option(self.title(), config.mock_mode(), hovered),
             Self::DisplayCharacterLevels => {
                 toggle_option(self.title(), config.display_character_levels, hovered)
             }
@@ -185,7 +185,8 @@ impl OptionsPopup {
                 config_changed = true;
             }
             OptionKind::MockMode => {
-                self.configuration.mock_mode = !self.configuration.mock_mode;
+                self.configuration
+                    .set_mock_mode(!self.configuration.mock_mode());
                 config_changed = true;
             }
             OptionKind::DisplayCharacterLevels => {

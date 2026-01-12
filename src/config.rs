@@ -16,7 +16,7 @@ pub struct ChronoBindAppConfig {
     /// Whether to show friendly names for files instead of raw filenames.
     pub show_friendly_names: bool,
     /// Whether to operate in mock mode (no actual file operations).
-    pub mock_mode: bool,
+    mock_mode: bool,
     /// Maximum automatic backups to keep per character.
     pub maximum_auto_backups: Option<usize>,
     /// Whether to display character levels in the UI, if available.
@@ -41,6 +41,21 @@ impl Default for ChronoBindAppConfig {
             display_character_levels: true,
             maximum_auto_backups: Some(Self::DEFAULT_MAXIMUM_AUTO_BACKUPS),
         }
+    }
+}
+
+impl ChronoBindAppConfig {
+    /// Check if the application is in mock mode.
+    #[inline]
+    #[must_use]
+    pub const fn mock_mode(&self) -> bool {
+        self.mock_mode
+    }
+
+    /// Set the mock mode state.
+    #[inline]
+    pub const fn set_mock_mode(&mut self, new_value: bool) {
+        self.mock_mode = new_value;
     }
 }
 

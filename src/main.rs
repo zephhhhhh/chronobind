@@ -2,6 +2,7 @@
 #![warn(clippy::nursery)]
 
 pub mod backend;
+pub mod cli;
 pub mod config;
 pub mod files;
 pub mod lua_table_parser;
@@ -12,6 +13,7 @@ pub mod ui;
 pub mod widgets;
 pub mod wow;
 
+use clap::Parser;
 use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::widgets::Widget;
@@ -30,6 +32,7 @@ use ratatui::text::{Line, Span};
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::backend::task::{BackendTask, IOTask};
+use crate::cli::ChronoCLIArgs;
 use crate::config::ChronoBindAppConfig;
 use crate::palette::{ENTER_SYMBOL, PALETTE};
 use crate::popups::backup_manager_popup::{BackupManagerPopup, BackupManagerPopupCommand};
@@ -49,7 +52,7 @@ use crate::widgets::popup::{Popup, PopupPtr};
 use crate::wow::{WoWCharacterBackup, WoWInstall, WoWInstalls};
 
 /// Whether to relaunch the terminal in debug mode on Windows Terminal if better symbols are not supported.
-const RELAUNCH_IN_DEBUG: bool = false;
+const RELAUNCH_IN_DEBUG: bool = true;
 
 /// Entry point..
 fn main() -> Result<()> {
@@ -68,13 +71,10 @@ fn main() -> Result<()> {
         terminal_relaunch::CURRENT_TERMINAL.verbose_format()
     );
 
-    if (!cfg!(debug_assertions) || RELAUNCH_IN_DEBUG)
-        && let Err(e) = terminal_relaunch::relaunch_if_available_and_exit()
-    {
-        log::error!("Terminal relaunch failed: {e:?}");
-    }
+    let cli_args = cli::ChronoCLIArgs::parse();
+    args_entry_setup(&cli_args);
 
-    let mut app = ChronoBindApp::new();
+    let mut app = ChronoBindApp::new(&cli_args);
     let mut terminal = ratatui::init();
 
     if set_console_window_title("ChronoBind").is_err() {
@@ -86,6 +86,24 @@ fn main() -> Result<()> {
     ratatui::restore();
 
     result
+}
+
+/// Setup environment based on CLI arguments.
+fn args_entry_setup(args: &ChronoCLIArgs) {
+    if let Some(terminal) = &args.terminal {
+        let term_type = terminal.to_terminal_type();
+        log::info!("Preferred terminal specified: {term_type:?}");
+        terminal_relaunch::set_preferred_terminal(Some(term_type));
+        terminal_relaunch::set_only_try_preferred_terminal(args.preferred_only);
+    }
+
+    let should_relaunch = (!cfg!(debug_assertions) || RELAUNCH_IN_DEBUG) || args.should_relaunch();
+    if should_relaunch
+        && !args.no_relaunch
+        && let Err(e) = terminal_relaunch::relaunch_if_available_and_exit()
+    {
+        log::error!("Terminal relaunch failed: {e:?}");
+    }
 }
 
 /// Set the console window title.
@@ -117,6 +135,8 @@ pub enum InputMode {
 pub struct ChronoBindApp {
     /// Application configuration settings.
     config: ChronoBindAppConfig,
+    /// CLI arguments provided on startup.
+    cli_args: ChronoCLIArgs,
 
     /// Whether the application should exit.
     should_exit: bool,
@@ -145,7 +165,7 @@ pub struct ChronoBindApp {
 
 impl ChronoBindApp {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(args: &ChronoCLIArgs) -> Self {
         // Sample WoW characters with their associated files
         let wow_installs = match wow::locate_wow_installs() {
             Ok(installs) => installs,
@@ -165,6 +185,8 @@ impl ChronoBindApp {
 
         let mut app = Self {
             config,
+            cli_args: args.clone(),
+
             should_exit: false,
 
             selected_branch: None,
@@ -186,6 +208,10 @@ impl ChronoBindApp {
             .clone()
             .unwrap_or_else(|| wow::WOW_RETAIL_IDENT.to_string());
         app.set_selected_branch(&branch_to_load);
+
+        if let Some(provided_file) = &app.cli_args.file_to_import {
+            app.open_popup(ImportDialog::new_with_path(provided_file));
+        }
 
         app
     }
@@ -548,7 +574,7 @@ impl ChronoBindApp {
                     dest_char.into(),
                     src_char.into(),
                     &files_to_paste,
-                    self.config.mock_mode,
+                    self.config.mock_mode(),
                 )
                 .on_all_complete(AppMessage::PerformBackupManagement(*char_idx));
                 self.handle_task(task);
@@ -603,7 +629,7 @@ impl ChronoBindApp {
                     &selected_files,
                     false,
                     false,
-                    self.config.mock_mode,
+                    self.config.mock_mode(),
                 );
                 self.handle_task(task);
             }
@@ -616,7 +642,7 @@ impl ChronoBindApp {
                     character.into(),
                     false,
                     false,
-                    self.config.mock_mode,
+                    self.config.mock_mode(),
                 );
                 self.handle_task(task);
             }
@@ -675,7 +701,7 @@ impl ChronoBindApp {
                         selected_install,
                         backend::InstallBackupOptions::character_backups(),
                         &final_export_path,
-                        self.config.mock_mode,
+                        self.config.mock_mode(),
                     ) {
                         self.handle_task(task);
                     }
@@ -691,7 +717,7 @@ impl ChronoBindApp {
                     &self.wow_installations,
                     backend::InstallBackupOptions::character_backups(),
                     &final_export_path,
-                    self.config.mock_mode,
+                    self.config.mock_mode(),
                 ) {
                     self.handle_task(task);
                 }
@@ -703,7 +729,7 @@ impl ChronoBindApp {
                         selected_install,
                         backend::InstallBackupOptions::all(),
                         &final_export_path,
-                        self.config.mock_mode,
+                        self.config.mock_mode(),
                     ) {
                         self.handle_task(task);
                     }
@@ -719,7 +745,7 @@ impl ChronoBindApp {
                     &self.wow_installations,
                     backend::InstallBackupOptions::all(),
                     &final_export_path,
-                    self.config.mock_mode,
+                    self.config.mock_mode(),
                 ) {
                     self.handle_task(task);
                 }
@@ -732,7 +758,7 @@ impl ChronoBindApp {
                     import_path.clone(),
                     &self.wow_installations,
                     *settings,
-                    self.config.mock_mode,
+                    self.config.mock_mode(),
                 ) {
                     self.handle_task(task);
                 }
@@ -805,7 +831,7 @@ impl ChronoBindApp {
     /// Render the top title bar.
     #[allow(clippy::cast_possible_truncation)]
     fn top_bar(&self, area: Rect, buf: &mut Buffer) {
-        let mock = if self.config.mock_mode {
+        let mock = if self.config.mock_mode() {
             "[Safe] "
         } else {
             Default::default()
@@ -1043,7 +1069,7 @@ fn character_restore_task(
     Some(backend::restore_backup_async(
         dest_char.into(),
         backup.path.clone(),
-        app.config.mock_mode,
+        app.config.mock_mode(),
     ))
 }
 
@@ -1067,7 +1093,7 @@ fn perform_backup_pin_toggle(app: &ChronoBindApp, char_idx: usize, backup_index:
         character.name()
     );
 
-    match backend::toggle_backup_pin(&backup, app.config.mock_mode) {
+    match backend::toggle_backup_pin(&backup, app.config.mock_mode()) {
         Ok(()) => {
             log::info!(
                 "Backup pin state toggled successfully for backup `{}` of character {}",
@@ -1101,7 +1127,7 @@ fn perform_backup_deletion(app: &ChronoBindApp, char_idx: usize, backup_index: u
         return false;
     };
 
-    match backend::delete_backup_file(&backup, false, app.config.mock_mode) {
+    match backend::delete_backup_file(&backup, false, app.config.mock_mode()) {
         Ok(deleted) => {
             if deleted {
                 log::info!(
@@ -1150,5 +1176,5 @@ fn get_manage_auto_backup_task(app: &mut ChronoBindApp, char_idx: usize) -> Opti
         max_backups
     );
 
-    backend::manage_character_backups(character, max_backups, app.config.mock_mode)
+    backend::manage_character_backups(character, max_backups, app.config.mock_mode())
 }

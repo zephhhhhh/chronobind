@@ -1,6 +1,6 @@
 [package]
 name = "chronobind"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -15,8 +15,8 @@ strum = { version = "0.27.2", features = ["derive"] }
 
 # Relaunching terminal with better support for colours and symbols.
 # (Written by me)
-terminal_relaunch = { version = "0.1.5", features = ["logging"] }
-# terminal_relaunch = { path = "../terminal_relaunch", features = ["logging"] }
+terminal_relaunch = { version = "0.2.3", features = ["logging", "clap"] }
+# terminal_relaunch = { path = "../terminal_relaunch", features = ["logging", "clap"] }
 
 # Logging..
 log = "0.4.29"
@@ -40,6 +40,9 @@ directories = "6.0.0"
 # Serialization.
 ron = "0.12.0"
 serde = { version = "1.0.228", features = ["derive"] }
+
+# CLI parsing.
+clap = { version = "4.5.54", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

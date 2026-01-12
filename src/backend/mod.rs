@@ -958,3 +958,19 @@ fn dir_name_to_branch_ident(dir_name: &str) -> String {
         .trim_start_matches('_')
         .to_string()
 }
+
+/// Get the list of branch identifiers contained in a backup export ZIP file.
+/// # Errors
+/// Returns an error if any file operations fail.
+#[inline]
+pub fn get_branches_in_export<P: AsRef<Path>>(export_path: P) -> AnyResult<Vec<String>> {
+    let mut archive = ChronoZipReader::new(export_path.as_ref())?;
+    let dirs_in_root = archive.directories_in_root();
+
+    let branch_idents = dirs_in_root
+        .iter()
+        .map(|dir| dir_name_to_branch_ident(dir))
+        .collect::<Vec<_>>();
+
+    Ok(branch_idents)
+}

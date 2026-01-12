@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[allow(clippy::wildcard_imports)]
 use crate::palette::*;
@@ -8,7 +8,7 @@ use crate::{
     ui::{KeyCodeExt, messages::AppMessage},
     widgets::{
         popup::{Popup, popup_block, popup_list, popup_list_no_block},
-        text_input::TextInput,
+        text_input::{TextInput, TextInputMode},
     },
 };
 
@@ -228,11 +228,25 @@ impl ImportDialog {
     /// Create a new `ImportDialog`.
     #[must_use]
     pub fn new() -> Self {
+        Self::new_with_text("", TextInputMode::Editing)
+    }
+
+    /// Create a new `ImportDialog` with provided `path` in the import text input.
+    #[must_use]
+    pub fn new_with_path<P: AsRef<Path>>(path: P) -> Self {
+        let provided_path = path.as_ref().to_string_lossy().to_string();
+        Self::new_with_text(provided_path, TextInputMode::Normal)
+    }
+
+    /// Create a new `ImportDialog` with provided `text` in the import text input.
+    #[must_use]
+    pub fn new_with_text<S: Into<String>>(text: S, mode: TextInputMode) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
         let mut text_input = TextInput::new_with_placeholder("Enter import path here...");
-        text_input.mode = crate::widgets::text_input::InputMode::Editing;
+        text_input.mode = mode;
+        text_input.input = text.into();
 
         Self {
             import_options: InstallBackupOptions::all(),
@@ -273,7 +287,7 @@ impl ImportDialog {
     #[inline]
     #[must_use]
     pub fn is_hovered(&self, index: usize) -> bool {
-        if self.path_input.mode == crate::widgets::text_input::InputMode::Editing {
+        if self.path_input.mode == TextInputMode::Editing {
             return false;
         }
         let selected_index = self.state.selected().unwrap_or(0);
@@ -291,7 +305,7 @@ impl Popup for ImportDialog {
                 self.state.select_next();
             }
             KeyCode::Char('t') => {
-                self.path_input.mode = crate::widgets::text_input::InputMode::Editing;
+                self.path_input.mode = TextInputMode::Editing;
             }
             KeyCode::Enter | KeyCode::Char(' ' | 'd' | 'e') => {
                 match self.state.selected().unwrap_or_default() {
@@ -324,7 +338,7 @@ impl Popup for ImportDialog {
     }
 
     fn handle_event(&mut self, event: &Event) -> bool {
-        if self.path_input.mode == crate::widgets::text_input::InputMode::Editing {
+        if self.path_input.mode == TextInputMode::Editing {
             self.path_input.handle_event(event);
             return true;
         }
@@ -374,7 +388,7 @@ impl Popup for ImportDialog {
         ];
 
         let mut list_view = popup_list_no_block(items);
-        if self.path_input.mode == crate::widgets::text_input::InputMode::Editing {
+        if self.path_input.mode == TextInputMode::Editing {
             list_view = list_view.highlight_style(Style::new());
         }
 
@@ -399,7 +413,7 @@ impl Popup for ImportDialog {
         "import_dialog"
     }
     fn bottom_bar_options(&self) -> Option<Vec<String>> {
-        if self.path_input.mode == crate::widgets::text_input::InputMode::Editing {
+        if self.path_input.mode == TextInputMode::Editing {
             Some(vec![format!("{}/Esc: Finish editing", ENTER_SYMBOL)])
         } else {
             Some(vec![

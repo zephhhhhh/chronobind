@@ -75,6 +75,29 @@ Import previously exported character or branch configurations. Useful for settin
 
 All file operations show detailed the progress and completion percentage, and display what operations are taking place.
 
+## Command-line arguments
+
+### Help
+
+To view available command-line arguments on your platform run: 
+```sh 
+chronobind -h
+``` 
+or 
+```sh
+chronobind --help
+```
+
+### Import a backup
+
+To start the process of importing a backup from the command line, a path to the backup `.zip` file can be provided as a command-line argument, for example:
+
+```sh
+chronobind "D:/Backups/Chronobind-export-20260107-095005.zip"
+```
+
+Alternatively, in most operating systems you can drag the backup file over the `chronobind.exe` and it will pass the path to the file in as a command-line argument automatically.
+
 ## Build and Run
 
 ### Requirements

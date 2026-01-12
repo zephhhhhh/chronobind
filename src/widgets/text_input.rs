@@ -10,7 +10,7 @@ use ratatui::{
 use crate::palette::PALETTE;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum InputMode {
+pub enum TextInputMode {
     /// Text field is not being interacted with.
     #[default]
     Normal,
@@ -25,7 +25,7 @@ pub struct TextInput {
     /// Optional placeholder text when input is empty.
     pub placeholder: Option<String>,
     /// Current input mode.
-    pub mode: InputMode,
+    pub mode: TextInputMode,
     /// Current character index.
     pub character_index: usize,
     /// The entered text input value.
@@ -38,7 +38,7 @@ impl TextInput {
     pub const fn new() -> Self {
         Self {
             placeholder: None,
-            mode: InputMode::Normal,
+            mode: TextInputMode::Normal,
             character_index: 0,
             input: String::new(),
         }
@@ -49,7 +49,7 @@ impl TextInput {
     pub fn new_with_placeholder<S: Into<String>>(placeholder: S) -> Self {
         Self {
             placeholder: Some(placeholder.into()),
-            mode: InputMode::Normal,
+            mode: TextInputMode::Normal,
             character_index: 0,
             input: String::new(),
         }
@@ -290,7 +290,7 @@ impl TextInput {
     /// Handle an event for the text input.
     pub fn handle_event(&mut self, event: &Event) {
         if let Event::Key(key_event) = event
-            && self.mode == InputMode::Editing
+            && self.mode == TextInputMode::Editing
             && key_event.kind == KeyEventKind::Press
         {
             let ctrl = key_event.modifiers.contains(KeyModifiers::CONTROL);
@@ -303,7 +303,7 @@ impl TextInput {
                 KeyCode::Backspace => self.backspace(),
                 KeyCode::Delete if ctrl => self.word_del(),
                 KeyCode::Delete => self.del(),
-                KeyCode::Enter | KeyCode::Esc => self.mode = InputMode::Normal,
+                KeyCode::Enter | KeyCode::Esc => self.mode = TextInputMode::Normal,
                 KeyCode::Left if ctrl => self.move_cursor_left_word(),
                 KeyCode::Left => self.move_cursor_left(),
                 KeyCode::Right if ctrl => self.move_cursor_right_word(),
@@ -321,8 +321,8 @@ impl TextInput {
             self.input.as_str()
         };
         let input = Paragraph::new(display_text).style(match self.mode {
-            InputMode::Normal => Style::default().fg(PALETTE.std_fg).dim(),
-            InputMode::Editing => {
+            TextInputMode::Normal => Style::default().fg(PALETTE.std_fg).dim(),
+            TextInputMode::Editing => {
                 let mut style = Style::default().fg(PALETTE.log_warn_fg);
                 if input_empty {
                     style = style.dim().fg(PALETTE.std_fg);
@@ -334,7 +334,7 @@ impl TextInput {
         Widget::render(input, area, frame.buffer_mut());
 
         #[allow(clippy::cast_possible_truncation)]
-        if self.mode == InputMode::Editing {
+        if self.mode == TextInputMode::Editing {
             frame.set_cursor_position(ratatui::layout::Position::new(
                 area.x + self.character_index as u16,
                 area.y,
